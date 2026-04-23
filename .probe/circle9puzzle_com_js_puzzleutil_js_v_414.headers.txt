@@ -1,0 +1,8 @@
+HTTP/2 200 
+last-modified: Mon, 02 Dec 2024 21:54:24 GMT
+accept-ranges: bytes
+content-length: 22
+content-type: text/javascript
+date: Thu, 23 Apr 2026 14:20:10 GMT
+server: Apache
+

@@ -60,7 +60,8 @@
   .cell.bb { border-bottom: 2.5px solid var(--line); }
   .cell.given { cursor: default; background: var(--bg); }
 
-  .cell.clue { cursor: default; background: var(--clue-bg); font-weight: 600; font-size: 20px; }
+  .cell.clue { cursor: default; background: var(--clue-bg); font-weight: 600; font-size: 20px; transition: color 180ms ease; }
+  .cell.clue.satisfied { color: rgba(26, 26, 26, 0.22); }
   @media (hover: hover) {
     .cell:hover:not(.clue) { background: #f1ece2; }
   }
@@ -492,7 +493,7 @@ EEEFFF
         } else if (isGivenCell(r, c)) {
           cell.classList.add("given");
         } else {
-          cell.addEventListener("click", () => onCellClick(r, c));
+          cell.addEventListener("pointerdown", (e) => onPointerDown(e, r, c));
           cell.addEventListener("contextmenu", (e) => { e.preventDefault(); onCellClick(r, c, -1); });
         }
         board.appendChild(cell);
@@ -522,6 +523,57 @@ EEEFFF
     autoCheck();
   }
 
+  // Swipe-to-paint: first cell cycles normally, subsequent cells under the drag
+  // get set to the SAME state as the first cell's new value (no cycling).
+  let swipe = null;
+  function cellAtPoint(clientX, clientY) {
+    const el = document.elementFromPoint(clientX, clientY);
+    if (!el) return null;
+    const cell = el.closest && el.closest(".cell");
+    if (!cell || cell.parentElement !== board) return null;
+    const r = Number(cell.dataset.r), c = Number(cell.dataset.c);
+    if (!Number.isInteger(r) || !Number.isInteger(c)) return null;
+    return { r, c };
+  }
+  function setCellTo(r, c, to) {
+    if (finishedAt) return;
+    if (isClueCell(r, c) || isGivenCell(r, c)) return;
+    const from = state[r][c];
+    if (from === to) return;
+    pushHistory();
+    state[r][c] = to;
+    moveLog.push({ t: Date.now() - startedAt, r, c, from, to });
+    render();
+    saveStore();
+    autoCheck();
+  }
+  function onPointerDown(ev, r, c) {
+    if (ev.button === 2) return; // right-click is handled separately
+    if (finishedAt) return;
+    if (isClueCell(r, c) || isGivenCell(r, c)) return;
+    ev.preventDefault();
+    onCellClick(r, c);
+    swipe = { to: state[r][c] };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    window.addEventListener("blur", onPointerUp);
+  }
+  function onPointerMove(ev) {
+    if (!swipe) return;
+    ev.preventDefault();
+    const hit = cellAtPoint(ev.clientX, ev.clientY);
+    if (!hit) return;
+    setCellTo(hit.r, hit.c, swipe.to);
+  }
+  function onPointerUp() {
+    swipe = null;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerUp);
+    window.removeEventListener("blur", onPointerUp);
+  }
+
   function undo() {
     if (!history.length) return;
     const prev = history.pop();
@@ -537,11 +589,30 @@ EEEFFF
     autoCheck();
   }
 
+  function isClueSatisfied(r, c) {
+    // Matches circle9's "satisfied2": count == clue AND no open neighbors.
+    const want = clues[`${r},${c}`];
+    if (want == null) return false;
+    let berries = 0, open = 0;
+    for (let dr = -1; dr <= 1; dr++)
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nc < 0 || nr >= SIZE || nc >= SIZE) continue;
+        if (isClueCell(nr, nc)) continue;
+        if (isBerry(nr, nc)) berries++;
+        else if (state[nr][nc] === 0) open++;
+      }
+    return berries === want && open === 0;
+  }
   function render() {
     for (const cell of board.children) {
       const r = +cell.dataset.r, c = +cell.dataset.c;
       cell.classList.remove("bad");
-      if (cell.classList.contains("clue")) continue;
+      if (cell.classList.contains("clue")) {
+        cell.classList.toggle("satisfied", isClueSatisfied(r, c));
+        continue;
+      }
       cell.innerHTML = "";
       if (isGivenCell(r, c) || state[r][c] === 1) {
         const b = document.createElement("div");

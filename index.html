@@ -131,24 +131,14 @@
   // Block id per cell — six 2x3 blocks
   const blockId = (r, c) => Math.floor(r / 2) * 2 + Math.floor(c / 3);
 
-  // Solution: 1 = berry, 0 = empty
-  const solution = [
-    [1,1,0,1,0,0],
-    [0,0,1,0,1,1],
-    [1,0,1,0,1,0],
-    [0,1,0,1,0,1],
-    [1,0,1,0,1,0],
-    [0,1,0,1,0,1],
-  ];
-
-  // Numbered clues — must lie on 0 cells; value = berries in 8 neighbors
+  // Numbered clues — value = berries in 8 neighbors
   const clues = {
     "0,2": 3,
     "0,4": 3,
     "1,0": 3,
     "2,3": 5,
     "3,2": 4,
-    "4,5": 4,
+    "4,5": 3,
     "5,2": 3,
   };
 
@@ -225,23 +215,29 @@
   }
 
   function autoCheck() {
-    // win = all cells decided AND matches solution
-    let totalBerries = 0;
+    // Need exactly PER berries in every row, column, and block, and every clue satisfied.
+    for (let r = 0; r < SIZE; r++) {
+      let n = 0;
+      for (let c = 0; c < SIZE; c++) if (isBerry(r, c)) n++;
+      if (n !== PER) { setStatus(""); return; }
+    }
+    for (let c = 0; c < SIZE; c++) {
+      let n = 0;
+      for (let r = 0; r < SIZE; r++) if (isBerry(r, c)) n++;
+      if (n !== PER) { setStatus(""); return; }
+    }
+    const blk = [0,0,0,0,0,0];
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
-        if (`${r},${c}` in clues) continue;
-        if (state[r][c] === 1) totalBerries++;
+        if (isBerry(r, c)) blk[blockId(r, c)]++;
       }
     }
-    if (totalBerries !== SIZE * PER) { setStatus(""); return; }
-    let solved = true;
-    for (let r = 0; r < SIZE && solved; r++) {
-      for (let c = 0; c < SIZE && solved; c++) {
-        if (`${r},${c}` in clues) continue;
-        if ((state[r][c] === 1) !== (solution[r][c] === 1)) solved = false;
-      }
+    if (blk.some(x => x !== PER)) { setStatus(""); return; }
+    for (const key in clues) {
+      const [r, c] = key.split(",").map(Number);
+      if (countNeighbors(r, c) !== clues[key]) { setStatus(""); return; }
     }
-    if (solved) setStatus("Solved!", true);
+    setStatus("Solved!", true);
   }
 
   function fullCheck() {

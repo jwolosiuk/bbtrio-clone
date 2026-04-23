@@ -54,13 +54,11 @@
     transition: background 120ms ease;
     touch-action: manipulation;
   }
-  .cell:nth-child(6n) { border-right: none; }
-  .cell:nth-last-child(-n+6) { border-bottom: none; }
-  /* Block borders: 6 blocks of 2 rows x 3 cols */
-  /* Heavy vertical line between col 2 and col 3 */
-  .cell[data-c="2"] { border-right: 2.5px solid var(--line); }
-  /* Heavy horizontal lines between rows 1-2 and rows 3-4 */
-  .cell[data-r="1"], .cell[data-r="3"] { border-bottom: 2.5px solid var(--line); }
+  .cell.edge-r { border-right: none; }
+  .cell.edge-b { border-bottom: none; }
+  .cell.br { border-right: 2.5px solid var(--line); }
+  .cell.bb { border-bottom: 2.5px solid var(--line); }
+  .cell.given { cursor: default; background: var(--bg); }
 
   .cell.clue { cursor: default; background: var(--clue-bg); font-weight: 600; font-size: 20px; }
   @media (hover: hover) {
@@ -144,12 +142,96 @@
 
 <script>
 (() => {
-  const SIZE = 6;
-  const PER = 3;
+  // Puzzle definition. Two grids separated by a truly blank line.
+  //   Grid 1 (cells): '.' open, '1'..'9' clue, 'x' pre-placed berry (given).
+  //   Grid 2 (groups): any letter; matching letters form one group.
+  //                    Every group must have exactly N cells (N = grid side).
+  //   Decoration: '|', '_', '-', '+', spaces are ignored; '#' starts a comment.
+  const puzzleText = `
+# Cells
+. . 3 | . 3 .
+3 . . | . . .
+------+------
+. . . | 5 . .
+. . 4 | . . .
+------+------
+. . . | . . 3
+. . 3 | . . .
 
-  // Block id per cell — six 2x3 blocks
-  const blockId = (r, c) => Math.floor(r / 2) * 2 + Math.floor(c / 3);
+# Groups (same letter = same region)
+A A A | B B B
+A A A | B B B
+------+------
+C C C | D D D
+C C C | D D D
+------+------
+E E E | F F F
+E E E | F F F
+`;
+
+  function parsePuzzle(text) {
+    // Tokens: '.', '1'-'9', 'x'/'X' in the cells grid; any letter for groups.
+    // Decoration characters |, _, -, +, spaces are ignored inside a line.
+    // Truly blank lines separate the two grids. Lines starting with '#' are comments.
+    const raw = text.split(/\r?\n/);
+    const blocks = [];
+    let cur = [];
+    for (const ln of raw) {
+      const trimmed = ln.trim();
+      if (trimmed.startsWith("#")) continue;
+      if (trimmed === "") { if (cur.length) { blocks.push(cur); cur = []; } continue; }
+      const stripped = ln.replace(/[|_\-+\s]/g, "");
+      if (stripped === "") continue; // pure decoration, e.g. "------+------"
+      cur.push(stripped);
+    }
+    if (cur.length) blocks.push(cur);
+    if (blocks.length < 2) throw new Error("puzzle needs a cells grid and a groups grid");
+    const cellLines = blocks[0], groupLines = blocks[1];
+    const n = cellLines.length;
+    if (groupLines.length !== n) throw new Error(`grids differ: ${n} cell rows vs ${groupLines.length} group rows`);
+    for (let r = 0; r < n; r++) {
+      if (cellLines[r].length !== n) throw new Error(`cells row ${r} is ${cellLines[r].length} chars after stripping, expected ${n}`);
+      if (groupLines[r].length !== n) throw new Error(`groups row ${r} is ${groupLines[r].length} chars after stripping, expected ${n}`);
+    }
+    const clues = {};
+    const givens = {};
+    for (let r = 0; r < n; r++) {
+      for (let c = 0; c < n; c++) {
+        const ch = cellLines[r][c];
+        if (ch === ".") continue;
+        if (ch === "x" || ch === "X") { givens[`${r},${c}`] = true; continue; }
+        if (/[0-9]/.test(ch)) { clues[`${r},${c}`] = Number(ch); continue; }
+        throw new Error(`unknown cell char '${ch}' at (${r},${c})`);
+      }
+    }
+    const groupOf = Array.from({ length: n }, () => Array(n).fill(null));
+    const counts = {};
+    for (let r = 0; r < n; r++)
+      for (let c = 0; c < n; c++) {
+        const g = groupLines[r][c];
+        groupOf[r][c] = g;
+        counts[g] = (counts[g] || 0) + 1;
+      }
+    // For "Trio" rules each group must contain (SIZE / 3) * some_count berries.
+    // On supported sizes the number of berries per row/col/group is SIZE/3 when SIZE=9,
+    // but classic rules fix it at 3. Groups therefore must have SIZE cells each.
+    const groupSize = n; // each group has exactly SIZE cells
+    for (const g in counts)
+      if (counts[g] !== groupSize) throw new Error(`group '${g}' has ${counts[g]} cells, expected ${groupSize}`);
+    // Berries per row/col/group: classic BBTrio is 3; scales up to 3 even on 9x9 as per your image (0 clue = "no berry nearby").
+    return { SIZE: n, PER: 3, clues, givens, groupOf };
+  }
+
+  const puzzle = parsePuzzle(puzzleText);
+  const SIZE = puzzle.SIZE;
+  const PER = puzzle.PER;
+  const clues = puzzle.clues;
+  const givens = puzzle.givens;
+  const groupOf = puzzle.groupOf;
+
+  const blockId = (r, c) => groupOf[r][c];
   const isClueCell = (r, c) => (`${r},${c}` in clues);
+  const isGivenCell = (r, c) => (`${r},${c}` in givens);
 
   // Precomputed groups and clue neighbors for the solver.
   let ROWS, COLS, BLOCKS, CLUE_LIST, DIFFICULTY_DEPTH;
@@ -252,29 +334,25 @@
     }
     return best;
   }
+  function solverStartingState() {
+    const s = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    for (const key in givens) {
+      const [r, c] = key.split(",").map(Number);
+      s[r][c] = 1;
+    }
+    return s;
+  }
   function computeDifficulty() {
     buildSolverTables();
-    const empty = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
-    DIFFICULTY_DEPTH = solveDepth(empty, 8);
+    DIFFICULTY_DEPTH = solveDepth(solverStartingState(), 8);
   }
   function difficultyLabel() {
     if (DIFFICULTY_DEPTH == null) return null;
     return DIFF_LABELS[Math.min(DIFFICULTY_DEPTH, DIFF_LABELS.length - 1)];
   }
 
-  // Numbered clues — value = berries in 8 neighbors
-  const clues = {
-    "0,2": 3,
-    "0,4": 3,
-    "1,0": 3,
-    "2,3": 5,
-    "3,2": 4,
-    "4,5": 3,
-    "5,2": 3,
-  };
-
   // Cell states: 0 empty, 1 berry, 2 mark. Click cycles 0 -> 2 -> 1 -> 0.
-  const STORE_KEY = "bbtrio:v2";
+  const STORE_KEY = "bbtrio:v3";
   const HISTORY_MAX = 200;
   let state;
   let history;     // array of { state, finishedAt } snapshots BEFORE each action
@@ -327,16 +405,24 @@
     }
     updateUndo();
     board.innerHTML = "";
+    board.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
+    board.style.gridTemplateRows = `repeat(${SIZE}, 1fr)`;
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
         const cell = document.createElement("div");
         cell.className = "cell";
         cell.dataset.r = r;
         cell.dataset.c = c;
+        if (c === SIZE - 1) cell.classList.add("edge-r");
+        if (r === SIZE - 1) cell.classList.add("edge-b");
+        if (c < SIZE - 1 && groupOf[r][c] !== groupOf[r][c + 1]) cell.classList.add("br");
+        if (r < SIZE - 1 && groupOf[r][c] !== groupOf[r + 1][c]) cell.classList.add("bb");
         const key = `${r},${c}`;
-        if (key in clues) {
+        if (isClueCell(r, c)) {
           cell.classList.add("clue");
           cell.textContent = clues[key];
+        } else if (isGivenCell(r, c)) {
+          cell.classList.add("given");
         } else {
           cell.addEventListener("click", () => onCellClick(r, c));
           cell.addEventListener("contextmenu", (e) => { e.preventDefault(); onCellClick(r, c, -1); });
@@ -353,6 +439,7 @@
 
   function onCellClick(r, c, dir = 1) {
     if (finishedAt) return;
+    if (isClueCell(r, c) || isGivenCell(r, c)) return;
     // Forward cycle: empty -> mark -> berry -> empty  (delta = 2 mod 3)
     // Reverse cycle (right click): empty -> berry -> mark -> empty (delta = 1 mod 3)
     const delta = dir === -1 ? 1 : 2;
@@ -383,7 +470,7 @@
       cell.classList.remove("bad");
       if (cell.classList.contains("clue")) continue;
       cell.innerHTML = "";
-      if (state[r][c] === 1) {
+      if (isGivenCell(r, c) || state[r][c] === 1) {
         const b = document.createElement("div");
         b.className = "berry";
         cell.appendChild(b);
@@ -397,7 +484,8 @@
   }
 
   function isBerry(r, c) {
-    if (`${r},${c}` in clues) return false;
+    if (isClueCell(r, c)) return false;
+    if (isGivenCell(r, c)) return true;
     return state[r][c] === 1;
   }
 
@@ -426,13 +514,15 @@
       for (let r = 0; r < SIZE; r++) if (isBerry(r, c)) n++;
       if (n !== PER) { setStatus(""); return; }
     }
-    const blk = [0,0,0,0,0,0];
+    const blk = {};
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
-        if (isBerry(r, c)) blk[blockId(r, c)]++;
+        if (isBerry(r, c)) blk[blockId(r, c)] = (blk[blockId(r, c)] || 0) + 1;
       }
     }
-    if (blk.some(x => x !== PER)) { setStatus(""); return; }
+    const blockIds = new Set();
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) blockIds.add(blockId(r, c));
+    for (const id of blockIds) if ((blk[id] || 0) !== PER) { setStatus(""); return; }
     for (const key in clues) {
       const [r, c] = key.split(",").map(Number);
       if (countNeighbors(r, c) !== clues[key]) { setStatus(""); return; }
@@ -470,7 +560,7 @@
   }
 
   function isOpen(r, c) {
-    if (`${r},${c}` in clues) return false;
+    if (isClueCell(r, c) || isGivenCell(r, c)) return false;
     return state[r][c] === 0; // empty cell could still become a berry
   }
   function openNeighbors(r, c) {

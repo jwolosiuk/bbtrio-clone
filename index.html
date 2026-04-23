@@ -59,7 +59,10 @@
   .cell[data-r="1"], .cell[data-r="3"] { border-bottom: 2.5px solid var(--line); }
 
   .cell.clue { cursor: default; background: var(--clue-bg); font-weight: 600; font-size: 20px; }
-  .cell:hover:not(.clue) { background: #f1ece2; }
+  @media (hover: hover) {
+    .cell:hover:not(.clue) { background: #f1ece2; }
+  }
+  .cell:focus { outline: none; }
 
   .berry {
     width: 64%; height: 64%;
@@ -95,7 +98,10 @@
     color: var(--ink); padding: 8px 14px; font: inherit; font-size: 14px;
     border-radius: 999px; cursor: pointer; transition: background 120ms ease;
   }
-  button:hover { background: #efe9dc; }
+  @media (hover: hover) {
+    button:hover { background: #efe9dc; }
+  }
+  button:disabled { opacity: 0.4; cursor: default; }
   .status { font-size: 13px; color: var(--muted); min-height: 1.2em; }
   .status.win { color: var(--good); font-weight: 600; }
 
@@ -124,8 +130,9 @@
   </div>
 
   <div class="controls">
-    <button id="reset" type="button">Reset</button>
+    <button id="undo" type="button" disabled>Undo</button>
     <button id="check" type="button">Check</button>
+    <button id="reset" type="button">Reset</button>
   </div>
   <div id="status" class="status" role="status" aria-live="polite"></div>
   <p class="legend">Click to mark <kbd>×</kbd>. <kbd>Click</kbd> again for a berry. Once more to clear.</p>
@@ -150,14 +157,17 @@
   };
 
   // Cell states: 0 empty, 1 berry, 2 mark. Click cycles 0 -> 2 -> 1 -> 0.
-  const STORE_KEY = "bbtrio:v1";
+  const STORE_KEY = "bbtrio:v2";
+  const HISTORY_MAX = 200;
   let state;
+  let history;     // array of { state, finishedAt } snapshots BEFORE each action
   let startedAt;   // ms timestamp when the current attempt began
   let finishedAt;  // ms timestamp when the puzzle was solved (null while unsolved)
   let tickHandle = null;
   const board = document.getElementById("board");
   const statusEl = document.getElementById("status");
   const timerEl = document.getElementById("timer");
+  const undoBtn = document.getElementById("undo");
 
   function loadStore() {
     try {
@@ -170,12 +180,19 @@
   }
   function saveStore() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ state, startedAt, finishedAt }));
+      localStorage.setItem(STORE_KEY, JSON.stringify({ state, startedAt, finishedAt, history }));
     } catch {}
   }
   function clearStore() {
     try { localStorage.removeItem(STORE_KEY); } catch {}
   }
+  function cloneState(s) { return s.map(row => row.slice()); }
+  function pushHistory() {
+    history.push({ state: cloneState(state), finishedAt });
+    if (history.length > HISTORY_MAX) history.shift();
+    updateUndo();
+  }
+  function updateUndo() { undoBtn.disabled = history.length === 0; }
 
   function init(fresh = false) {
     const stored = fresh ? null : loadStore();
@@ -183,12 +200,15 @@
       state = stored.state;
       startedAt = stored.startedAt || Date.now();
       finishedAt = stored.finishedAt || null;
+      history = Array.isArray(stored.history) ? stored.history : [];
     } else {
       state = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
       startedAt = Date.now();
       finishedAt = null;
+      history = [];
       saveStore();
     }
+    updateUndo();
     board.innerHTML = "";
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
@@ -219,7 +239,22 @@
     // Forward cycle: empty -> mark -> berry -> empty  (delta = 2 mod 3)
     // Reverse cycle (right click): empty -> berry -> mark -> empty (delta = 1 mod 3)
     const delta = dir === -1 ? 1 : 2;
+    pushHistory();
     state[r][c] = (state[r][c] + delta) % 3;
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    render();
+    saveStore();
+    autoCheck();
+  }
+
+  function undo() {
+    if (!history.length) return;
+    const prev = history.pop();
+    state = prev.state.map(row => row.slice());
+    const wasFinished = !!finishedAt;
+    finishedAt = prev.finishedAt || null;
+    if (wasFinished && !finishedAt) { setStatus(""); startTicking(); }
+    updateUndo();
     render();
     saveStore();
     autoCheck();
@@ -396,11 +431,13 @@
     statusEl.style.color = bad ? "var(--bad)" : "";
   }
 
-  document.getElementById("reset").addEventListener("click", () => {
+  document.getElementById("reset").addEventListener("click", (e) => {
     clearStore();
     init(true);
+    e.currentTarget.blur();
   });
-  document.getElementById("check").addEventListener("click", fullCheck);
+  document.getElementById("check").addEventListener("click", (e) => { fullCheck(); e.currentTarget.blur(); });
+  undoBtn.addEventListener("click", (e) => { undo(); e.currentTarget.blur(); });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopTicking();
     else { renderTimer(); startTicking(); }

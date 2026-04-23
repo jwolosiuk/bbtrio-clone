@@ -137,10 +137,11 @@ def desc_to_our_format(desc_json: str) -> str:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--date", help="YYYY-MM-DD (default: today UTC)")
-    ap.add_argument("--category", default="Standard", choices=["Standard", "Advanced", "Expert"])
+    ap.add_argument("--category", default=None, choices=["Standard", "Advanced", "Expert"],
+                    help="single category; default is to emit all three")
     ap.add_argument("--source", default="Daily", choices=["Daily", "Plus"])
     ap.add_argument("--set", dest="set_number", default=0, type=int)
-    ap.add_argument("--out", default="puzzle.txt")
+    ap.add_argument("--out", default=None, help="override single-category output path")
     ap.add_argument("--archive-dir", default="puzzles", help="mirror the daily file into this dir")
     ap.add_argument("--puzzles-url", default="https://circle9puzzle.com/bbtrio/bbtrio.puzzles.js")
     ap.add_argument("--puzzles-file", help="read puzzles.js from local file instead of URL")
@@ -156,23 +157,27 @@ def main():
     puzzles = fetch_puzzles(src)
     counts = {k: len(v) for k, v in puzzles.items()}
     print(f"available categories: {counts}", file=sys.stderr)
-    if args.category not in puzzles:
-        sys.exit(f"category {args.category!r} not in {list(puzzles)}")
 
-    desc = select_puzzle(puzzles, today, args.category, args.source, args.set_number)
-    print(f"selected puzzle for {today.isoformat()} / {args.category} / {args.source} / set {args.set_number}", file=sys.stderr)
+    categories = [args.category] if args.category else ["Standard", "Advanced", "Expert"]
+    for cat in categories:
+        if cat not in puzzles:
+            sys.exit(f"category {cat!r} not in {list(puzzles)}")
+        desc = select_puzzle(puzzles, today, cat, args.source, args.set_number)
+        print(f"selected {today.isoformat()} / {cat} / {args.source} / set {args.set_number}", file=sys.stderr)
+        out_text = desc_to_our_format(desc)
 
-    out_text = desc_to_our_format(desc)
+        if args.out and args.category:
+            out = Path(args.out)
+        else:
+            out = Path(f"puzzle-{cat.lower()}.txt")
+        out.write_text(out_text)
+        print(f"wrote {out}", file=sys.stderr)
 
-    out = Path(args.out)
-    out.write_text(out_text)
-    print(f"wrote {out}", file=sys.stderr)
-
-    if args.archive_dir:
-        arch = Path(args.archive_dir) / f"{today.isoformat()}_{args.category}.txt"
-        arch.parent.mkdir(parents=True, exist_ok=True)
-        arch.write_text(out_text)
-        print(f"wrote {arch}", file=sys.stderr)
+        if args.archive_dir:
+            arch = Path(args.archive_dir) / f"{today.isoformat()}_{cat}.txt"
+            arch.parent.mkdir(parents=True, exist_ok=True)
+            arch.write_text(out_text)
+            print(f"wrote {arch}", file=sys.stderr)
 
 
 if __name__ == "__main__":

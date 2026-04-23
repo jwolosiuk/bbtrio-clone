@@ -113,6 +113,20 @@
     background: #efe9dc; border: 1px solid var(--thin); border-bottom-width: 2px;
     border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: inherit;
   }
+  .tabs {
+    display: flex; gap: 6px; justify-content: center;
+    margin: 12px 0 10px;
+  }
+  .tab {
+    appearance: none; border: 1.5px solid var(--thin); background: var(--bg);
+    color: var(--muted); padding: 6px 12px; font: inherit; font-size: 13px;
+    border-radius: 999px; cursor: pointer; transition: background 120ms ease;
+    touch-action: manipulation;
+  }
+  .tab.active { border-color: var(--line); color: var(--ink); font-weight: 600; }
+  .tab.locked { opacity: 0.45; cursor: default; }
+  .tab.done { color: var(--good); border-color: var(--good); }
+  .tab.done.active { font-weight: 600; }
   .timer {
     font-variant-numeric: tabular-nums;
     font-size: 13px; color: var(--muted);
@@ -125,6 +139,7 @@
   <header>
     <h1>Blueberry Trio</h1>
     <p class="rule">Place 3 berries in each row, column, and block. Each number must be touched by exactly that many berries (8 neighbors).</p>
+    <div id="tabs" class="tabs" role="tablist"></div>
     <div id="timer" class="timer" aria-label="Elapsed time">00:00</div>
     <div id="undo-count" class="timer" aria-label="Undo count" style="margin-top:2px;"></div>
   </header>
@@ -218,6 +233,11 @@ EEEFFF
   function applyPuzzle(text) {
     const p = parsePuzzle(text);
     SIZE = p.SIZE; PER = p.PER; clues = p.clues; givens = p.givens; groupOf = p.groupOf;
+  }
+  function activateCategoryPuzzle(cat) {
+    const p = puzzleDefs[cat];
+    SIZE = p.SIZE; PER = p.PER; clues = p.clues; givens = p.givens; groupOf = p.groupOf;
+    DIFFICULTY_DEPTH = p.difficulty;
   }
 
   const blockId = (r, c) => groupOf[r][c];
@@ -360,6 +380,7 @@ EEEFFF
     buildSolverTables();
     const res = solveNishio(2); // cap at depth 2 so page load stays snappy
     DIFFICULTY_DEPTH = res.solved ? res.maxUsed : null;
+    if (puzzleDefs[currentCategory]) puzzleDefs[currentCategory].difficulty = DIFFICULTY_DEPTH;
   }
   function difficultyLabel() {
     if (DIFFICULTY_DEPTH == null) return null;
@@ -367,7 +388,16 @@ EEEFFF
   }
 
   // Cell states: 0 empty, 1 berry, 2 mark. Click cycles 0 -> 2 -> 1 -> 0.
-  const STORE_KEY = "bbtrio:v4";
+  // Multi-category support: 3 puzzles per day, unlocked sequentially.
+  const CATEGORIES = ["Standard", "Advanced", "Expert"];
+  const puzzleDefs = {}; // { cat: { SIZE, PER, clues, givens, groupOf, difficulty } }
+  let currentCategory = "Standard";
+  const STORE_PREFIX = "bbtrio:v5:";
+  const todayKey = () => {
+    const d = new Date();
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
+  };
+  const storeKey = (cat) => `${STORE_PREFIX}${todayKey()}:${cat}`;
   const HISTORY_MAX = 200;
   let state;
   let history;     // array of { state, finishedAt } snapshots BEFORE each action
@@ -382,24 +412,37 @@ EEEFFF
   const undoBtn = document.getElementById("undo");
   const undoCountEl = document.getElementById("undo-count");
 
-  function loadStore() {
+  function loadStore(cat = currentCategory) {
     try {
-      const raw = localStorage.getItem(STORE_KEY);
+      const raw = localStorage.getItem(storeKey(cat));
       if (!raw) return null;
       const data = JSON.parse(raw);
-      if (!Array.isArray(data.state) || data.state.length !== SIZE) return null;
+      const pz = puzzleDefs[cat];
+      if (!pz || !Array.isArray(data.state) || data.state.length !== pz.SIZE) return null;
       return data;
     } catch { return null; }
   }
   function saveStore() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({
+      localStorage.setItem(storeKey(currentCategory), JSON.stringify({
         state, startedAt, finishedAt, history, moveLog, undoCount
       }));
     } catch {}
   }
-  function clearStore() {
-    try { localStorage.removeItem(STORE_KEY); } catch {}
+  function clearStore(cat = currentCategory) {
+    try { localStorage.removeItem(storeKey(cat)); } catch {}
+  }
+  function pruneOldStorage() {
+    try {
+      const prefix = STORE_PREFIX;
+      const today = todayKey();
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix) && !k.startsWith(prefix + today)) {
+          localStorage.removeItem(k);
+        }
+      }
+    } catch {}
   }
   function cloneState(s) { return s.map(row => row.slice()); }
   function pushHistory() {
@@ -562,6 +605,7 @@ EEEFFF
       saveStore();
       stopTicking();
       renderTimer();
+      renderTabs();
     }
     const label = difficultyLabel();
     const parts = ["Solved!"];
@@ -677,9 +721,56 @@ EEEFFF
     statusEl.style.color = bad ? "var(--bad)" : "";
   }
 
+  function isCategoryUnlocked(cat) {
+    if (cat === "Standard") return true;
+    const prev = cat === "Advanced" ? "Standard" : "Advanced";
+    const stored = loadStore(prev);
+    return !!(stored && stored.finishedAt);
+  }
+  function categoryFinishedAt(cat) {
+    const stored = loadStore(cat);
+    return stored && stored.finishedAt ? stored.finishedAt : null;
+  }
+  function renderTabs() {
+    const tabs = document.getElementById("tabs");
+    tabs.innerHTML = "";
+    for (const cat of CATEGORIES) {
+      const btn = document.createElement("button");
+      btn.className = "tab";
+      const unlocked = isCategoryUnlocked(cat);
+      const done = categoryFinishedAt(cat);
+      if (cat === currentCategory) btn.classList.add("active");
+      if (!unlocked) btn.classList.add("locked");
+      if (done) btn.classList.add("done");
+      btn.type = "button";
+      btn.textContent = unlocked
+        ? (done ? `${cat} ✓` : cat)
+        : `${cat} 🔒`;
+      btn.disabled = !unlocked;
+      if (unlocked) {
+        btn.addEventListener("click", (e) => {
+          switchCategory(cat);
+          e.currentTarget.blur();
+        });
+      }
+      tabs.appendChild(btn);
+    }
+  }
+  function switchCategory(cat) {
+    if (cat === currentCategory) return;
+    if (!isCategoryUnlocked(cat)) return;
+    saveStore(); // flush current category before switching
+    stopTicking();
+    currentCategory = cat;
+    activateCategoryPuzzle(cat);
+    buildSolverTables();
+    init(false);
+    renderTabs();
+  }
   document.getElementById("reset").addEventListener("click", (e) => {
     clearStore();
     init(true);
+    renderTabs();
     e.currentTarget.blur();
   });
   document.getElementById("check").addEventListener("click", (e) => { fullCheck(); e.currentTarget.blur(); });
@@ -689,21 +780,45 @@ EEEFFF
     else { renderTimer(); startTicking(); }
   });
 
+  async function fetchText(url) {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
+    return res.text();
+  }
   async function boot() {
-    let text;
-    try {
-      const res = await fetch("puzzle.txt", { cache: "no-store" });
-      if (!res.ok) throw new Error(`puzzle.txt HTTP ${res.status}`);
-      text = await res.text();
-    } catch (err) {
-      console.warn("Using fallback puzzle:", err.message);
-      text = FALLBACK_PUZZLE;
+    pruneOldStorage();
+    for (const cat of CATEGORIES) {
+      let text;
+      try {
+        text = await fetchText(`puzzle-${cat.toLowerCase()}.txt`);
+      } catch (err) {
+        console.warn(`${cat}: using fallback`, err.message);
+        text = FALLBACK_PUZZLE;
+      }
+      const p = parsePuzzle(text);
+      puzzleDefs[cat] = { ...p, difficulty: null };
     }
-    applyPuzzle(text);
-    computeDifficulty();
+    // Compute difficulty per category.
+    for (const cat of CATEGORIES) {
+      currentCategory = cat;
+      activateCategoryPuzzle(cat);
+      computeDifficulty();
+    }
+    // Pick the first unlocked-but-unsolved category, else the last unlocked.
+    let initial = "Standard";
+    for (const cat of CATEGORIES) {
+      if (!isCategoryUnlocked(cat)) break;
+      if (!categoryFinishedAt(cat)) { initial = cat; break; }
+      initial = cat;
+    }
+    currentCategory = initial;
+    activateCategoryPuzzle(initial);
+    buildSolverTables();
     init();
+    renderTabs();
   }
   window.__bbtrio = () => ({
+    currentCategory,
     moveLog: moveLog.slice(),
     undoCount,
     startedAt,
@@ -713,6 +828,12 @@ EEEFFF
     clues: { ...clues },
     givens: { ...givens },
     groupOf: groupOf.map(row => row.slice()),
+    difficulty: DIFFICULTY_DEPTH,
+    categoryStatus: Object.fromEntries(CATEGORIES.map(c => [c, {
+      unlocked: isCategoryUnlocked(c),
+      finishedAt: categoryFinishedAt(c),
+      difficulty: (puzzleDefs[c] || {}).difficulty,
+    }])),
   });
   boot();
 })();

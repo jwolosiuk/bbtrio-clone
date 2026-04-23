@@ -1,0 +1,26 @@
+# Blueberry Trio — fetched from circle9puzzle.com
+# Generated 2026-04-23T14:27:28Z
+# Cells: '.' open, '0'-'9' clue, 'x' pre-placed berry
+# Groups: matching letters = same region (each region has N cells)
+
+# Cells
+. . . . . 1 3 . .
+. . 4 . . . 4 . .
+. . . . . . . . .
+. . . . . . . . .
+. . . . . . . . .
+. . . . . 1 . . .
+2 . . . 3 . . . 3
+. . . . . . 3 . .
+. . . 3 . . . . .
+
+# Groups
+A B B B B C C C C
+A A B B B B C C C
+A A A D D B C C E
+A A A D D D F F E
+G G G D D D F F E
+G G G D H F F F E
+I G G I H H F E E
+I G I I H H F E E
+I I I I H H H H E

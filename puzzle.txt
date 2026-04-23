@@ -1,25 +1,26 @@
-# Blueberry Trio — today's puzzle
-# Two grids separated by a blank line.
-#   Cells:  '.' open, '0'-'9' clue, 'x' pre-placed berry
-#   Groups: any letter, matching letters = same region
+# Blueberry Trio — 9x9 with irregular regions
+# Cells: '.' open, '0'-'9' clue, 'x' pre-placed berry
+# Groups: any letter, matching letters = same region (each region has 9 cells)
 # Decoration: '|', '_', '-', '+', spaces are ignored; '#' starts a comment.
 
 # Cells
-. . 3 | . 3 .
-3 . . | . . .
-------+------
-. . . | 5 . .
-. . 4 | . . .
-------+------
-. . . | . . 3
-. . 3 | . . .
+. . . . . . . 2 1
+. . . . . . . . .
+. . . . . . . . .
+. 3 . . 3 3 . . 2
+. . . . . 3 . . .
+. . . 3 3 . 3 3 .
+. . . . . . . . .
+. . . . . . . . .
+. . . 2 2 . . . .
 
-# Groups (same letter = same region)
-A A A | B B B
-A A A | B B B
-------+------
-C C C | D D D
-C C C | D D D
-------+------
-E E E | F F F
-E E E | F F F
+# Groups (9 irregular regions of 9 cells each)
+A A A A B B B C C
+A A A B B B B C C
+A A B B C C C C C
+D D D D E E E F F
+D D D E E E E F F
+D D E E F F F F F
+G G G G H H H I I
+G G G H H H H I I
+G G H H I I I I I

@@ -334,7 +334,7 @@ EEEFFF
   }
   function computeDifficulty() {
     buildSolverTables();
-    DIFFICULTY_DEPTH = solveDepth(solverStartingState(), 8);
+    DIFFICULTY_DEPTH = solveDepth(solverStartingState(), 14);
   }
   function difficultyLabel() {
     if (DIFFICULTY_DEPTH == null) return null;

@@ -142,31 +142,22 @@
 
 <script>
 (() => {
-  // Puzzle definition. Two grids separated by a truly blank line.
-  //   Grid 1 (cells): '.' open, '1'..'9' clue, 'x' pre-placed berry (given).
-  //   Grid 2 (groups): any letter; matching letters form one group.
-  //                    Every group must have exactly N cells (N = grid side).
-  //   Decoration: '|', '_', '-', '+', spaces are ignored; '#' starts a comment.
-  const puzzleText = `
-# Cells
-. . 3 | . 3 .
-3 . . | . . .
-------+------
-. . . | 5 . .
-. . 4 | . . .
-------+------
-. . . | . . 3
-. . 3 | . . .
+  // Fallback puzzle used if puzzle.txt can't be fetched (e.g. file:// origin).
+  // Live puzzle is in puzzle.txt; see there for the format.
+  const FALLBACK_PUZZLE = `
+..3.3.
+3.....
+...5..
+..4...
+.....3
+..3...
 
-# Groups (same letter = same region)
-A A A | B B B
-A A A | B B B
-------+------
-C C C | D D D
-C C C | D D D
-------+------
-E E E | F F F
-E E E | F F F
+AAABBB
+AAABBB
+CCCDDD
+CCCDDD
+EEEFFF
+EEEFFF
 `;
 
   function parsePuzzle(text) {
@@ -222,12 +213,11 @@ E E E | F F F
     return { SIZE: n, PER: 3, clues, givens, groupOf };
   }
 
-  const puzzle = parsePuzzle(puzzleText);
-  const SIZE = puzzle.SIZE;
-  const PER = puzzle.PER;
-  const clues = puzzle.clues;
-  const givens = puzzle.givens;
-  const groupOf = puzzle.groupOf;
+  let SIZE, PER, clues, givens, groupOf;
+  function applyPuzzle(text) {
+    const p = parsePuzzle(text);
+    SIZE = p.SIZE; PER = p.PER; clues = p.clues; givens = p.givens; groupOf = p.groupOf;
+  }
 
   const blockId = (r, c) => groupOf[r][c];
   const isClueCell = (r, c) => (`${r},${c}` in clues);
@@ -651,8 +641,21 @@ E E E | F F F
     else { renderTimer(); startTicking(); }
   });
 
-  computeDifficulty();
-  init();
+  async function boot() {
+    let text;
+    try {
+      const res = await fetch("puzzle.txt", { cache: "no-store" });
+      if (!res.ok) throw new Error(`puzzle.txt HTTP ${res.status}`);
+      text = await res.text();
+    } catch (err) {
+      console.warn("Using fallback puzzle:", err.message);
+      text = FALLBACK_PUZZLE;
+    }
+    applyPuzzle(text);
+    computeDifficulty();
+    init();
+  }
+  boot();
 })();
 </script>
 </body>

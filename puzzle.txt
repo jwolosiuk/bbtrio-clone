@@ -1,0 +1,25 @@
+# Blueberry Trio — today's puzzle
+# Two grids separated by a blank line.
+#   Cells:  '.' open, '0'-'9' clue, 'x' pre-placed berry
+#   Groups: any letter, matching letters = same region
+# Decoration: '|', '_', '-', '+', spaces are ignored; '#' starts a comment.
+
+# Cells
+. . 3 | . 3 .
+3 . . | . . .
+------+------
+. . . | 5 . .
+. . 4 | . . .
+------+------
+. . . | . . 3
+. . 3 | . . .
+
+# Groups (same letter = same region)
+A A A | B B B
+A A A | B B B
+------+------
+C C C | D D D
+C C C | D D D
+------+------
+E E E | F F F
+E E E | F F F

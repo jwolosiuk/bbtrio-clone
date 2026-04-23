@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Blueberry Trio</title>
+<style>
+  :root {
+    --bg: #faf7f2;
+    --ink: #1a1a1a;
+    --muted: #8a8a8a;
+    --line: #1a1a1a;
+    --thin: #cfc9bf;
+    --berry: #3b2a78;
+    --berry-shine: #8a7ad6;
+    --leaf: #4a8a4a;
+    --mark: #b8b1a4;
+    --clue-bg: #efe9dc;
+    --good: #2a8a4a;
+    --bad: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent; }
+  body { min-height: 100dvh; display: flex; flex-direction: column; align-items: center;
+    padding: 24px 16px 48px; }
+  header { text-align: center; margin-bottom: 16px; }
+  h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: 0.2px; }
+  .rule { margin: 0; color: var(--muted); font-size: 13px; max-width: 32em; line-height: 1.45; }
+
+  .board-wrap { position: relative; }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    grid-template-rows: repeat(6, 1fr);
+    width: min(92vw, 480px);
+    aspect-ratio: 1 / 1;
+    background: var(--bg);
+    border: 2.5px solid var(--line);
+    user-select: none;
+    touch-action: manipulation;
+  }
+  .cell {
+    position: relative;
+    border-right: 1px solid var(--thin);
+    border-bottom: 1px solid var(--thin);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    background: var(--bg);
+    transition: background 120ms ease;
+  }
+  .cell:nth-child(6n) { border-right: none; }
+  .cell:nth-last-child(-n+6) { border-bottom: none; }
+  /* Block borders: 6 blocks of 2 rows x 3 cols */
+  /* Heavy vertical line between col 2 and col 3 */
+  .cell[data-c="2"] { border-right: 2.5px solid var(--line); }
+  /* Heavy horizontal lines between rows 1-2 and rows 3-4 */
+  .cell[data-r="1"], .cell[data-r="3"] { border-bottom: 2.5px solid var(--line); }
+
+  .cell.clue { cursor: default; background: var(--clue-bg); font-weight: 600; font-size: 20px; }
+  .cell:hover:not(.clue) { background: #f1ece2; }
+
+  .berry {
+    width: 64%; height: 64%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 32% 30%, var(--berry-shine) 0%, var(--berry) 55%, #241a4d 100%);
+    box-shadow: inset 0 -3px 6px rgba(0,0,0,0.25);
+    position: relative;
+    animation: pop 140ms ease-out;
+  }
+  .berry::after {
+    content: "";
+    position: absolute;
+    top: -10%; left: 38%;
+    width: 22%; height: 16%;
+    background: var(--leaf);
+    border-radius: 60% 40% 60% 40% / 60% 40% 60% 40%;
+    transform: rotate(-25deg);
+  }
+  .mark {
+    width: 38%; height: 38%;
+    color: var(--mark);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; line-height: 1; font-weight: 400;
+  }
+  @keyframes pop { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  .cell.bad { background: #f7d8d4; }
+  .cell.bad.clue { background: #f0c0bb; }
+
+  .controls { display: flex; gap: 10px; margin-top: 18px; align-items: center; }
+  button {
+    appearance: none; border: 1.5px solid var(--line); background: var(--bg);
+    color: var(--ink); padding: 8px 14px; font: inherit; font-size: 14px;
+    border-radius: 999px; cursor: pointer; transition: background 120ms ease;
+  }
+  button:hover { background: #efe9dc; }
+  .status { font-size: 13px; color: var(--muted); min-height: 1.2em; }
+  .status.win { color: var(--good); font-weight: 600; }
+
+  .legend { margin-top: 14px; color: var(--muted); font-size: 12px; }
+  .legend kbd {
+    background: #efe9dc; border: 1px solid var(--thin); border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 6px; font-size: 11px; font-family: inherit;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Blueberry Trio</h1>
+    <p class="rule">Place 3 berries in each row, column, and block. Each number must be touched by exactly that many berries (8 neighbors).</p>
+  </header>
+
+  <div class="board-wrap">
+    <div id="board" class="board" aria-label="Puzzle board"></div>
+  </div>
+
+  <div class="controls">
+    <button id="reset" type="button">Reset</button>
+    <button id="check" type="button">Check</button>
+  </div>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
+  <p class="legend">Click to place a berry. <kbd>Click</kbd> again to mark <kbd>×</kbd>. Once more to clear.</p>
+
+<script>
+(() => {
+  const SIZE = 6;
+  const PER = 3;
+
+  // Block id per cell — six 2x3 blocks
+  const blockId = (r, c) => Math.floor(r / 2) * 2 + Math.floor(c / 3);
+
+  // Solution: 1 = berry, 0 = empty
+  const solution = [
+    [1,1,0,1,0,0],
+    [0,0,1,0,1,1],
+    [1,0,1,0,1,0],
+    [0,1,0,1,0,1],
+    [1,0,1,0,1,0],
+    [0,1,0,1,0,1],
+  ];
+
+  // Numbered clues — must lie on 0 cells; value = berries in 8 neighbors
+  const clues = {
+    "0,2": 3,
+    "0,4": 3,
+    "1,0": 3,
+    "2,3": 5,
+    "3,2": 4,
+    "4,5": 4,
+    "5,2": 3,
+  };
+
+  // Cell states: 0 empty, 1 berry, 2 mark
+  let state;
+  const board = document.getElementById("board");
+  const statusEl = document.getElementById("status");
+
+  function init() {
+    state = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    board.innerHTML = "";
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.dataset.r = r;
+        cell.dataset.c = c;
+        const key = `${r},${c}`;
+        if (key in clues) {
+          cell.classList.add("clue");
+          cell.textContent = clues[key];
+        } else {
+          cell.addEventListener("click", () => onCellClick(r, c));
+          cell.addEventListener("contextmenu", (e) => { e.preventDefault(); onCellClick(r, c, -1); });
+        }
+        board.appendChild(cell);
+      }
+    }
+    setStatus("");
+    render();
+  }
+
+  function onCellClick(r, c, dir = 1) {
+    state[r][c] = ((state[r][c] + (dir === -1 ? 2 : 1)) % 3 + 3) % 3;
+    render();
+    autoCheck();
+  }
+
+  function render() {
+    for (const cell of board.children) {
+      const r = +cell.dataset.r, c = +cell.dataset.c;
+      cell.classList.remove("bad");
+      if (cell.classList.contains("clue")) continue;
+      cell.innerHTML = "";
+      if (state[r][c] === 1) {
+        const b = document.createElement("div");
+        b.className = "berry";
+        cell.appendChild(b);
+      } else if (state[r][c] === 2) {
+        const m = document.createElement("div");
+        m.className = "mark";
+        m.textContent = "×";
+        cell.appendChild(m);
+      }
+    }
+  }
+
+  function isBerry(r, c) {
+    if (`${r},${c}` in clues) return false;
+    return state[r][c] === 1;
+  }
+
+  function countNeighbors(r, c) {
+    let n = 0;
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nc < 0 || nr >= SIZE || nc >= SIZE) continue;
+        if (isBerry(nr, nc)) n++;
+      }
+    }
+    return n;
+  }
+
+  function autoCheck() {
+    // win = all cells decided AND matches solution
+    let totalBerries = 0;
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        if (`${r},${c}` in clues) continue;
+        if (state[r][c] === 1) totalBerries++;
+      }
+    }
+    if (totalBerries !== SIZE * PER) { setStatus(""); return; }
+    let solved = true;
+    for (let r = 0; r < SIZE && solved; r++) {
+      for (let c = 0; c < SIZE && solved; c++) {
+        if (`${r},${c}` in clues) continue;
+        if ((state[r][c] === 1) !== (solution[r][c] === 1)) solved = false;
+      }
+    }
+    if (solved) setStatus("Solved!", true);
+  }
+
+  function fullCheck() {
+    // Highlight conflicts and report.
+    let problems = [];
+    // rows
+    for (let r = 0; r < SIZE; r++) {
+      let n = 0;
+      for (let c = 0; c < SIZE; c++) if (isBerry(r, c)) n++;
+      if (n > PER) {
+        for (let c = 0; c < SIZE; c++) if (isBerry(r, c)) markBad(r, c);
+        problems.push(`row ${r + 1} has ${n} berries`);
+      }
+    }
+    // cols
+    for (let c = 0; c < SIZE; c++) {
+      let n = 0;
+      for (let r = 0; r < SIZE; r++) if (isBerry(r, c)) n++;
+      if (n > PER) {
+        for (let r = 0; r < SIZE; r++) if (isBerry(r, c)) markBad(r, c);
+        problems.push(`column ${c + 1} has ${n} berries`);
+      }
+    }
+    // blocks
+    const blockCells = {};
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        const b = blockId(r, c);
+        (blockCells[b] ||= []).push([r, c]);
+      }
+    }
+    for (const b in blockCells) {
+      const cells = blockCells[b];
+      const n = cells.filter(([r, c]) => isBerry(r, c)).length;
+      if (n > PER) {
+        cells.forEach(([r, c]) => { if (isBerry(r, c)) markBad(r, c); });
+        problems.push(`a block has ${n} berries`);
+      }
+    }
+    // clues
+    for (const key in clues) {
+      const [r, c] = key.split(",").map(Number);
+      const want = clues[key];
+      const got = countNeighbors(r, c);
+      if (got > want) {
+        markBad(r, c);
+        problems.push(`clue ${want} at row ${r + 1}, col ${c + 1} sees ${got}`);
+      }
+    }
+    if (problems.length === 0) {
+      autoCheck();
+      if (!statusEl.classList.contains("win")) setStatus("No conflicts so far.");
+    } else {
+      setStatus(problems[0] + (problems.length > 1 ? ` (+${problems.length - 1} more)` : ""), false, true);
+    }
+  }
+
+  function markBad(r, c) {
+    const idx = r * SIZE + c;
+    board.children[idx].classList.add("bad");
+  }
+
+  function setStatus(text, win = false, bad = false) {
+    statusEl.textContent = text;
+    statusEl.classList.toggle("win", !!win);
+    statusEl.style.color = bad ? "var(--bad)" : "";
+  }
+
+  document.getElementById("reset").addEventListener("click", init);
+  document.getElementById("check").addEventListener("click", fullCheck);
+
+  init();
+})();
+</script>
+</body>
+</html>

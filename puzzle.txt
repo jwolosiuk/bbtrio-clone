@@ -1,26 +1,26 @@
-# Blueberry Trio — 9x9 with irregular regions
+# Blueberry Trio — fetched from circle9puzzle.com
+# Generated 2026-04-23T14:25:32Z
 # Cells: '.' open, '0'-'9' clue, 'x' pre-placed berry
-# Groups: any letter, matching letters = same region (each region has 9 cells)
-# Decoration: '|', '_', '-', '+', spaces are ignored; '#' starts a comment.
+# Groups: matching letters = same region (each region has N cells)
 
 # Cells
-. . . . . . . 2 1
-. . . . . . . . .
-. . . . . . . . .
-. 3 . . 3 3 . . 2
-. . . . . 3 . . .
-. . . 3 3 . 3 3 .
-. . . . . . . . .
-. . . . . . . . .
-. . . 2 2 . . . .
+. . . . 0 . . . .
+. . . . . 2 . . .
+. . 1 . . . . . .
+. . . 3 . . . 3 .
+. . . . . 3 3 . .
+. . . . 3 3 3 . .
+. . 3 . . . . . 1
+. . . . . . 4 . .
+. . 3 . . . . 1 .
 
-# Groups (9 irregular regions of 9 cells each)
-A A A A B B B C C
-A A A B B B B C C
-A A B B C C C C C
-D D D D E E E F F
-D D D E E E E F F
-D D E E F F F F F
-G G G G H H H I I
-G G G H H H H I I
-G G H H I I I I I
+# Groups
+A A A B B B C C C
+A A A B B B C C C
+A A A B B B C C C
+D D D E E E F F F
+D D D E E E F F F
+D D D E E E F F F
+G G G H H H I I I
+G G G H H H I I I
+G G G H H H I I I

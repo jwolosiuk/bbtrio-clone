@@ -1,0 +1,48 @@
+name: daily-puzzle
+on:
+  schedule:
+    # 06:00 UTC = 07:00 CET / 08:00 CEST — already past midnight for Europe.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      category:
+        description: 'Puzzle category (Standard | Advanced | Expert)'
+        required: false
+        default: 'Standard'
+      date:
+        description: 'Override date (YYYY-MM-DD, UTC). Leave blank for today.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch today's puzzle
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.category }}" ]; then
+            ARGS="$ARGS --category ${{ github.event.inputs.category }}"
+          fi
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            ARGS="$ARGS --date ${{ github.event.inputs.date }}"
+          fi
+          python3 tools/fetch_daily.py $ARGS
+
+      - name: Commit if puzzle changed
+        run: |
+          git config user.name "daily-puzzle-bot"
+          git config user.email "daily-puzzle@users.noreply.github.com"
+          git add puzzle.txt puzzles/
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            TODAY=$(date -u +%Y-%m-%d)
+            git commit -m "Daily puzzle for $TODAY"
+            git push
+          fi

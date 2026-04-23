@@ -299,42 +299,58 @@ EEEFFF
         if (!isClueCell(r, c) && s[r][c] === 0) return false;
     return true;
   }
-  function solveDepth(start, budget) {
-    const s = start.map(row => row.slice());
-    if (!solverPropagate(s)) return null;
-    if (solverComplete(s)) return 0;
-    if (budget <= 0) return null;
-    let target = null;
-    outer: for (let r = 0; r < SIZE; r++)
+  // Returns true if `s` is provably contradictory via at most `depth` levels
+  // of nested trial: depth 0 only uses propagation; depth D succeeds if some
+  // undecided cell has BOTH values failing at depth D-1.
+  function isContradictory(s, depth) {
+    const cp = s.map(row => row.slice());
+    if (!solverPropagate(cp)) return true;
+    if (depth <= 0 || solverComplete(cp)) return false;
+    for (let r = 0; r < SIZE; r++)
       for (let c = 0; c < SIZE; c++) {
-        if (!isClueCell(r, c) && s[r][c] === 0) { target = [r, c]; break outer; }
+        if (isClueCell(r, c) || cp[r][c] !== 0) continue;
+        let bothFail = true;
+        for (const v of [1, 2]) {
+          const t = cp.map(row => row.slice());
+          t[r][c] = v;
+          if (!isContradictory(t, depth - 1)) { bothFail = false; break; }
+        }
+        if (bothFail) return true;
       }
-    let best = null;
-    for (const v of [1, 2]) {
-      const cap = best === null ? budget - 1 : best - 2;
-      if (cap < 0) continue;
-      const copy = s.map(row => row.slice());
-      copy[target[0]][target[1]] = v;
-      const d = solveDepth(copy, cap);
-      if (d !== null) {
-        const cost = 1 + d;
-        if (best === null || cost < best) best = cost;
-        if (best === 1) break;
-      }
-    }
-    return best;
+    return false;
   }
-  function solverStartingState() {
-    const s = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
-    for (const key in givens) {
-      const [r, c] = key.split(",").map(Number);
-      s[r][c] = 1;
+  // Nishio BFS: iteratively deepen. Returns {solved, maxUsed} where
+  // maxUsed is the deepest lookahead needed across all forced moves.
+  function solveNishio(maxDepth) {
+    let state = solverStartingState();
+    let maxUsed = 0;
+    while (true) {
+      if (!solverPropagate(state)) return { solved: false, maxUsed };
+      if (solverComplete(state)) return { solved: true, maxUsed };
+      let progress = false;
+      for (let depth = 1; depth <= maxDepth && !progress; depth++) {
+        for (let r = 0; r < SIZE && !progress; r++)
+          for (let c = 0; c < SIZE && !progress; c++) {
+            if (isClueCell(r, c) || state[r][c] !== 0) continue;
+            for (const v of [1, 2]) {
+              const t = state.map(row => row.slice());
+              t[r][c] = v;
+              if (isContradictory(t, depth - 1)) {
+                state[r][c] = v === 1 ? 2 : 1;
+                if (depth > maxUsed) maxUsed = depth;
+                progress = true;
+                break;
+              }
+            }
+          }
+      }
+      if (!progress) return { solved: false, maxUsed };
     }
-    return s;
   }
   function computeDifficulty() {
     buildSolverTables();
-    DIFFICULTY_DEPTH = solveDepth(solverStartingState(), 14);
+    const res = solveNishio(2); // cap at depth 2 so page load stays snappy
+    DIFFICULTY_DEPTH = res.solved ? res.maxUsed : null;
   }
   function difficultyLabel() {
     if (DIFFICULTY_DEPTH == null) return null;

@@ -1,0 +1,30 @@
+name: probe-view
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-view.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p .probe
+          UA="Mozilla/5.0 bbtrio-clone-probe"
+          for url in \
+            "https://circle9puzzle.com/js/puzzleutil.view.js?v=414" \
+            "https://circle9puzzle.com/js/puzzleutil.page.js?v=414" \
+            "https://circle9puzzle.com/js/vdom.js?v=414" \
+            "https://circle9puzzle.com/js/util.js?v=414" \
+          ; do
+            slug=$(echo "$url" | sed 's|https://||; s|[/.:?&=]|_|g')
+            curl -sSL -A "$UA" -o ".probe/${slug}.txt" "$url"
+          done
+          git config user.name "probe-bot"
+          git config user.email "probe@users.noreply.github.com"
+          git add .probe/
+          git diff --cached --quiet && echo "no changes" || (git commit -m "probe: view files" && git push)

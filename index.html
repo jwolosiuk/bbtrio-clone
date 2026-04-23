@@ -42,7 +42,8 @@
     background: var(--bg);
     border: 2.5px solid var(--line);
     user-select: none;
-    touch-action: manipulation;
+    touch-action: none;
+    overscroll-behavior: contain;
   }
   .cell {
     position: relative;
@@ -52,7 +53,7 @@
     cursor: pointer;
     background: var(--bg);
     transition: background 120ms ease;
-    touch-action: manipulation;
+    touch-action: none;
   }
   .cell.edge-r { border-right: none; }
   .cell.edge-b { border-bottom: none; }

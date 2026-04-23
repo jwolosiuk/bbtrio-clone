@@ -316,51 +316,65 @@
     if (tickHandle) { clearInterval(tickHandle); tickHandle = null; }
   }
 
+  function isOpen(r, c) {
+    if (`${r},${c}` in clues) return false;
+    return state[r][c] === 0; // empty cell could still become a berry
+  }
+  function openNeighbors(r, c) {
+    let n = 0;
+    for (let dr = -1; dr <= 1; dr++)
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = r + dr, nc = c + dc;
+        if (nr < 0 || nc < 0 || nr >= SIZE || nc >= SIZE) continue;
+        if (isOpen(nr, nc)) n++;
+      }
+    return n;
+  }
+
   function fullCheck() {
-    // Highlight conflicts and report.
-    let problems = [];
-    // rows
-    for (let r = 0; r < SIZE; r++) {
-      let n = 0;
-      for (let c = 0; c < SIZE; c++) if (isBerry(r, c)) n++;
-      if (n > PER) {
-        for (let c = 0; c < SIZE; c++) if (isBerry(r, c)) markBad(r, c);
-        problems.push(`row ${r + 1} has ${n} berries`);
+    const problems = [];
+    const tallyLine = (cells, label) => {
+      let berries = 0, open = 0;
+      for (const [r, c] of cells) {
+        if (isBerry(r, c)) berries++;
+        else if (isOpen(r, c)) open++;
       }
-    }
-    // cols
-    for (let c = 0; c < SIZE; c++) {
-      let n = 0;
-      for (let r = 0; r < SIZE; r++) if (isBerry(r, c)) n++;
-      if (n > PER) {
-        for (let r = 0; r < SIZE; r++) if (isBerry(r, c)) markBad(r, c);
-        problems.push(`column ${c + 1} has ${n} berries`);
-      }
-    }
-    // blocks
-    const blockCells = {};
-    for (let r = 0; r < SIZE; r++) {
-      for (let c = 0; c < SIZE; c++) {
-        const b = blockId(r, c);
-        (blockCells[b] ||= []).push([r, c]);
-      }
-    }
-    for (const b in blockCells) {
-      const cells = blockCells[b];
-      const n = cells.filter(([r, c]) => isBerry(r, c)).length;
-      if (n > PER) {
+      if (berries > PER) {
         cells.forEach(([r, c]) => { if (isBerry(r, c)) markBad(r, c); });
-        problems.push(`a block has ${n} berries`);
+        problems.push(`${label} has ${berries} berries`);
+      } else if (berries + open < PER) {
+        cells.forEach(([r, c]) => { if (state[r][c] === 2) markBad(r, c); });
+        problems.push(`${label} can't reach ${PER} (${berries} + ${open} open)`);
       }
+    };
+    for (let r = 0; r < SIZE; r++) {
+      const cells = [];
+      for (let c = 0; c < SIZE; c++) cells.push([r, c]);
+      tallyLine(cells, `row ${r + 1}`);
     }
-    // clues
+    for (let c = 0; c < SIZE; c++) {
+      const cells = [];
+      for (let r = 0; r < SIZE; r++) cells.push([r, c]);
+      tallyLine(cells, `column ${c + 1}`);
+    }
+    const blockCells = {};
+    for (let r = 0; r < SIZE; r++)
+      for (let c = 0; c < SIZE; c++)
+        (blockCells[blockId(r, c)] ||= []).push([r, c]);
+    for (const b in blockCells) tallyLine(blockCells[b], "a block");
+
     for (const key in clues) {
       const [r, c] = key.split(",").map(Number);
       const want = clues[key];
       const got = countNeighbors(r, c);
+      const open = openNeighbors(r, c);
       if (got > want) {
         markBad(r, c);
         problems.push(`clue ${want} at row ${r + 1}, col ${c + 1} sees ${got}`);
+      } else if (got + open < want) {
+        markBad(r, c);
+        problems.push(`clue ${want} at row ${r + 1}, col ${c + 1} can't reach ${want}`);
       }
     }
     if (problems.length === 0) {

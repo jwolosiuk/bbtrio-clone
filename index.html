@@ -126,6 +126,7 @@
     <h1>Blueberry Trio</h1>
     <p class="rule">Place 3 berries in each row, column, and block. Each number must be touched by exactly that many berries (8 neighbors).</p>
     <div id="timer" class="timer" aria-label="Elapsed time">00:00</div>
+    <div id="undo-count" class="timer" aria-label="Undo count" style="margin-top:2px;"></div>
   </header>
 
   <div class="board-wrap">
@@ -347,6 +348,14 @@ EEEFFF
       if (!progress) return { solved: false, maxUsed };
     }
   }
+  function solverStartingState() {
+    const s = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    for (const key in givens) {
+      const [r, c] = key.split(",").map(Number);
+      s[r][c] = 1;
+    }
+    return s;
+  }
   function computeDifficulty() {
     buildSolverTables();
     const res = solveNishio(2); // cap at depth 2 so page load stays snappy
@@ -358,17 +367,20 @@ EEEFFF
   }
 
   // Cell states: 0 empty, 1 berry, 2 mark. Click cycles 0 -> 2 -> 1 -> 0.
-  const STORE_KEY = "bbtrio:v3";
+  const STORE_KEY = "bbtrio:v4";
   const HISTORY_MAX = 200;
   let state;
   let history;     // array of { state, finishedAt } snapshots BEFORE each action
   let startedAt;   // ms timestamp when the current attempt began
   let finishedAt;  // ms timestamp when the puzzle was solved (null while unsolved)
+  let moveLog;     // array of { t, r, c, from, to } — forward user clicks only
+  let undoCount;   // number of undo button presses this attempt
   let tickHandle = null;
   const board = document.getElementById("board");
   const statusEl = document.getElementById("status");
   const timerEl = document.getElementById("timer");
   const undoBtn = document.getElementById("undo");
+  const undoCountEl = document.getElementById("undo-count");
 
   function loadStore() {
     try {
@@ -381,7 +393,9 @@ EEEFFF
   }
   function saveStore() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ state, startedAt, finishedAt, history }));
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        state, startedAt, finishedAt, history, moveLog, undoCount
+      }));
     } catch {}
   }
   function clearStore() {
@@ -402,14 +416,19 @@ EEEFFF
       startedAt = stored.startedAt || Date.now();
       finishedAt = stored.finishedAt || null;
       history = Array.isArray(stored.history) ? stored.history : [];
+      moveLog = Array.isArray(stored.moveLog) ? stored.moveLog : [];
+      undoCount = Number.isFinite(stored.undoCount) ? stored.undoCount : 0;
     } else {
       state = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
       startedAt = Date.now();
       finishedAt = null;
       history = [];
+      moveLog = [];
+      undoCount = 0;
       saveStore();
     }
     updateUndo();
+    renderUndoCount();
     board.innerHTML = "";
     board.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
     board.style.gridTemplateRows = `repeat(${SIZE}, 1fr)`;
@@ -449,8 +468,11 @@ EEEFFF
     // Forward cycle: empty -> mark -> berry -> empty  (delta = 2 mod 3)
     // Reverse cycle (right click): empty -> berry -> mark -> empty (delta = 1 mod 3)
     const delta = dir === -1 ? 1 : 2;
+    const from = state[r][c];
+    const to = (from + delta) % 3;
     pushHistory();
-    state[r][c] = (state[r][c] + delta) % 3;
+    state[r][c] = to;
+    moveLog.push({ t: Date.now() - startedAt, r, c, from, to });
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     render();
     saveStore();
@@ -464,6 +486,8 @@ EEEFFF
     const wasFinished = !!finishedAt;
     finishedAt = prev.finishedAt || null;
     if (wasFinished && !finishedAt) { setStatus(""); startTicking(); }
+    undoCount++;
+    renderUndoCount();
     updateUndo();
     render();
     saveStore();
@@ -540,7 +564,15 @@ EEEFFF
       renderTimer();
     }
     const label = difficultyLabel();
-    setStatus(label ? `Solved! · ${label}` : "Solved!", true);
+    const parts = ["Solved!"];
+    if (label) parts.push(label);
+    if (undoCount > 0) parts.push(`${undoCount} undo`);
+    setStatus(parts.join(" · "), true);
+  }
+
+  function renderUndoCount() {
+    if (!undoCountEl) return;
+    undoCountEl.textContent = undoCount > 0 ? `${undoCount} undo` : "";
   }
 
   function formatTime(ms) {
@@ -671,6 +703,17 @@ EEEFFF
     computeDifficulty();
     init();
   }
+  window.__bbtrio = () => ({
+    moveLog: moveLog.slice(),
+    undoCount,
+    startedAt,
+    finishedAt,
+    elapsedMs: (finishedAt || Date.now()) - startedAt,
+    state: state.map(row => row.slice()),
+    clues: { ...clues },
+    givens: { ...givens },
+    groupOf: groupOf.map(row => row.slice()),
+  });
   boot();
 })();
 </script>

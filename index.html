@@ -471,6 +471,9 @@ EEEFFF
     }
     updateUndo();
     renderUndoCount();
+    // Block iOS Safari double-tap-zoom over the whole board, including clue cells.
+    // Must be on touchstart with preventDefault; touch-action: none isn't enough.
+    board.ontouchstart = (e) => { e.preventDefault(); };
     board.innerHTML = "";
     board.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
     board.style.gridTemplateRows = `repeat(${SIZE}, 1fr)`;

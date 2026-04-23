@@ -1,0 +1,28 @@
+name: probe-fresh
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-fresh.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p .probe
+          UA="Mozilla/5.0 bbtrio-clone-probe"
+          # Fetch with no version param to get latest
+          curl -sSL -A "$UA" -D .probe/head.txt -o .probe/fresh-puzzles.js \
+            "https://circle9puzzle.com/bbtrio/bbtrio.puzzles.js"
+          curl -sSL -A "$UA" -D .probe/head2.txt -o .probe/fresh-bbtrio-index.html \
+            "https://circle9puzzle.com/bbtrio/"
+          wc -c .probe/fresh-*.js .probe/fresh-*.html
+          head -20 .probe/head.txt
+          git config user.name "probe-bot"
+          git config user.email "probe@users.noreply.github.com"
+          git add .probe/
+          git diff --cached --quiet && echo "no changes" || (git commit -m "probe: fresh puzzles.js [skip stamp]" && git push)

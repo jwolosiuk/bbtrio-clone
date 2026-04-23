@@ -1,1 +1,1 @@
-{"sha":"cf64349","fullSha":"cf64349e91516fe6e3d6de5fb2bd3110fed306bb","built":"2026-04-23T15:06:43Z","message":"Stamp every main commit with version.json and show SHA in footer"}
+{"sha":"573c68e","fullSha":"573c68ea07791bb2227f9ad6835ffdd0dfdf6add","built":"2026-04-23T15:08:11Z","message":"stamp-version: use paths-ignore instead of commit-message guard"}

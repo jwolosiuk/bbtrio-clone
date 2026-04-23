@@ -107,6 +107,14 @@
   .status { font-size: 13px; color: var(--muted); min-height: 1.2em; }
   .status.win { color: var(--good); font-weight: 600; }
 
+  .build-info {
+    position: fixed; bottom: 6px; right: 8px;
+    font-size: 10px; color: var(--muted); opacity: 0.6;
+    font-family: ui-monospace, monospace; letter-spacing: 0.3px;
+    user-select: text; -webkit-user-select: text;
+  }
+  .build-info a { color: inherit; text-decoration: none; }
+  .build-info a:hover { text-decoration: underline; }
   .legend { margin-top: 14px; color: var(--muted); font-size: 12px; }
   .legend kbd {
     background: #efe9dc; border: 1px solid var(--thin); border-bottom-width: 2px;
@@ -154,6 +162,7 @@
   </div>
   <div id="status" class="status" role="status" aria-live="polite"></div>
   <p class="legend">Click to mark <kbd>×</kbd>. <kbd>Click</kbd> again for a berry. Once more to clear.</p>
+  <div id="build-info" class="build-info"></div>
 
 <script>
 (() => {
@@ -857,7 +866,20 @@ EEEFFF
     if (!res.ok) throw new Error(`${url} HTTP ${res.status}`);
     return res.text();
   }
+  async function renderBuildInfo() {
+    const el = document.getElementById("build-info");
+    if (!el) return;
+    try {
+      const res = await fetch("version.json", { cache: "no-store" });
+      if (!res.ok) return;
+      const v = await res.json();
+      const built = v.built ? v.built.replace(/[TZ]/g, " ").trim() : "";
+      const repo = "https://github.com/jwolosiuk/bbtrio-clone";
+      el.innerHTML = `<a href="${repo}/commit/${v.fullSha || v.sha}" target="_blank" rel="noopener">${v.sha || ""}</a> · ${built}`;
+    } catch {}
+  }
   async function boot() {
+    renderBuildInfo();
     pruneOldStorage();
     for (const cat of CATEGORIES) {
       let text;

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover" />
 <title>Blueberry Trio</title>
 <style>
   :root {
@@ -74,7 +74,6 @@
     background: radial-gradient(circle at 32% 30%, var(--berry-shine) 0%, var(--berry) 55%, #241a4d 100%);
     box-shadow: inset 0 -3px 6px rgba(0,0,0,0.25);
     position: relative;
-    animation: pop 140ms ease-out;
   }
   .berry::after {
     content: "";
@@ -91,8 +90,6 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 28px; line-height: 1; font-weight: 400;
   }
-  @keyframes pop { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-
   .cell.bad { background: #f7d8d4; }
   .cell.bad.clue { background: #f0c0bb; }
 

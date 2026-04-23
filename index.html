@@ -149,6 +149,118 @@
 
   // Block id per cell — six 2x3 blocks
   const blockId = (r, c) => Math.floor(r / 2) * 2 + Math.floor(c / 3);
+  const isClueCell = (r, c) => (`${r},${c}` in clues);
+
+  // Precomputed groups and clue neighbors for the solver.
+  let ROWS, COLS, BLOCKS, CLUE_LIST, DIFFICULTY_DEPTH;
+  const DIFF_LABELS = ["Trivial", "Easy", "Medium", "Hard", "Expert", "Grandmaster"];
+  function buildSolverTables() {
+    ROWS = []; COLS = []; BLOCKS = [];
+    for (let r = 0; r < SIZE; r++) {
+      const g = [];
+      for (let c = 0; c < SIZE; c++) if (!isClueCell(r, c)) g.push([r, c]);
+      ROWS.push(g);
+    }
+    for (let c = 0; c < SIZE; c++) {
+      const g = [];
+      for (let r = 0; r < SIZE; r++) if (!isClueCell(r, c)) g.push([r, c]);
+      COLS.push(g);
+    }
+    const bm = {};
+    for (let r = 0; r < SIZE; r++)
+      for (let c = 0; c < SIZE; c++)
+        if (!isClueCell(r, c)) (bm[blockId(r, c)] ||= []).push([r, c]);
+    BLOCKS = Object.values(bm);
+    CLUE_LIST = Object.entries(clues).map(([k, v]) => {
+      const [r, c] = k.split(",").map(Number);
+      const ns = [];
+      for (let dr = -1; dr <= 1; dr++)
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nr = r + dr, nc = c + dc;
+          if (nr < 0 || nc < 0 || nr >= SIZE || nc >= SIZE) continue;
+          if (!isClueCell(nr, nc)) ns.push([nr, nc]);
+        }
+      return { r, c, v, ns };
+    });
+  }
+  function solverPropagate(s) {
+    let changed;
+    do {
+      changed = false;
+      for (const group of [...ROWS, ...COLS, ...BLOCKS]) {
+        let berries = 0, open = 0;
+        for (const [r, c] of group) {
+          if (s[r][c] === 1) berries++;
+          else if (s[r][c] === 0) open++;
+        }
+        const need = PER - berries;
+        if (need < 0 || need > open) return false;
+        if (open === 0) continue;
+        if (need === 0) {
+          for (const [r, c] of group) if (s[r][c] === 0) { s[r][c] = 2; changed = true; }
+        } else if (need === open) {
+          for (const [r, c] of group) if (s[r][c] === 0) { s[r][c] = 1; changed = true; }
+        }
+      }
+      for (const { v, ns } of CLUE_LIST) {
+        let berries = 0, open = 0;
+        for (const [nr, nc] of ns) {
+          if (s[nr][nc] === 1) berries++;
+          else if (s[nr][nc] === 0) open++;
+        }
+        const need = v - berries;
+        if (need < 0 || need > open) return false;
+        if (open === 0) continue;
+        if (need === 0) {
+          for (const [nr, nc] of ns) if (s[nr][nc] === 0) { s[nr][nc] = 2; changed = true; }
+        } else if (need === open) {
+          for (const [nr, nc] of ns) if (s[nr][nc] === 0) { s[nr][nc] = 1; changed = true; }
+        }
+      }
+    } while (changed);
+    return true;
+  }
+  function solverComplete(s) {
+    for (let r = 0; r < SIZE; r++)
+      for (let c = 0; c < SIZE; c++)
+        if (!isClueCell(r, c) && s[r][c] === 0) return false;
+    return true;
+  }
+  function solveDepth(start, budget) {
+    const s = start.map(row => row.slice());
+    if (!solverPropagate(s)) return null;
+    if (solverComplete(s)) return 0;
+    if (budget <= 0) return null;
+    let target = null;
+    outer: for (let r = 0; r < SIZE; r++)
+      for (let c = 0; c < SIZE; c++) {
+        if (!isClueCell(r, c) && s[r][c] === 0) { target = [r, c]; break outer; }
+      }
+    let best = null;
+    for (const v of [1, 2]) {
+      const cap = best === null ? budget - 1 : best - 2;
+      if (cap < 0) continue;
+      const copy = s.map(row => row.slice());
+      copy[target[0]][target[1]] = v;
+      const d = solveDepth(copy, cap);
+      if (d !== null) {
+        const cost = 1 + d;
+        if (best === null || cost < best) best = cost;
+        if (best === 1) break;
+      }
+    }
+    return best;
+  }
+  function computeDifficulty() {
+    buildSolverTables();
+    const empty = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    DIFFICULTY_DEPTH = solveDepth(empty, 8);
+  }
+  function difficultyLabel() {
+    if (DIFFICULTY_DEPTH == null) return null;
+    return DIFF_LABELS[Math.min(DIFFICULTY_DEPTH, DIFF_LABELS.length - 1)];
+  }
 
   // Numbered clues — value = berries in 8 neighbors
   const clues = {
@@ -331,7 +443,8 @@
       stopTicking();
       renderTimer();
     }
-    setStatus("Solved!", true);
+    const label = difficultyLabel();
+    setStatus(label ? `Solved! · ${label}` : "Solved!", true);
   }
 
   function formatTime(ms) {
@@ -448,6 +561,7 @@
     else { renderTimer(); startTicking(); }
   });
 
+  computeDifficulty();
   init();
 })();
 </script>

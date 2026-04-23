@@ -20,13 +20,7 @@ jobs:
           mkdir -p .probe
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
           for url in \
-            "https://circle9puzzle.com/bbtrio/bbtrio.js?v=414" \
-            "https://circle9puzzle.com/bbtrio/bbtrio.puzzles.js?v=414" \
-            "https://circle9puzzle.com/bbtrio/bbtrio.solutions.js?v=414" \
-            "https://circle9puzzle.com/js/puzzlepage.js?v=414" \
-            "https://circle9puzzle.com/js/puzzleutil.js?v=414" \
-            "https://circle9puzzle.com/js/puzzleutil.model.js?v=414" \
-            "https://circle9puzzle.com/blueberry/blueberry.js?v=414" \
+            "https://circle9puzzle.com/js/cyrb53.js" \
           ; do
             slug=$(echo "$url" | sed 's|https://||; s|[/.:?&=]|_|g')
             echo "=== $url ==="

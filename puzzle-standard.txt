@@ -1,17 +1,17 @@
 # Blueberry Trio — fetched from circle9puzzle.com
-# Generated 2026-04-24T04:14:28Z
+# Generated 2026-04-24T04:20:00Z
 # Cells: '.' open, '0'-'9' clue, 'x' pre-placed berry
 # Groups: matching letters = same region (each region has N cells)
 
 # Cells
-2 . . . . . 0 . .
-3 . . 3 . . . . .
-. 3 . . . . . . .
-. . . . . . . . 0
-. . 2 . . . . . .
-. . 1 . . . . 3 .
-. 3 . . . . . . .
-. . 5 . . . . . .
+0 . . . . . 2 . .
+. . 3 4 . 3 . . 2
+. . . . . . 5 5 .
+. . . . . 2 . . .
+2 . . . . . . . .
+2 . . . 4 . 3 . .
+. . . . . . . 3 .
+. . . . . . . . .
 . . . . . . . . .
 
 # Groups

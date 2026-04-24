@@ -55,6 +55,40 @@ def date_key(d: dt.date) -> str:
     return f"{d.day} {d.month} {d.year}"
 
 
+def _extract_js_string_list(body: str) -> list[str]:
+    """Pull every JS string literal out of `body`, handling both 'single'
+    and "double" quoted forms with \\-escapes. circle9puzzle packs Standard
+    entries as single-quoted and their "archive half" as double-quoted with
+    \\" escapes; a naive regex only catches one flavor."""
+    out: list[str] = []
+    i, n = 0, len(body)
+    while i < n:
+        ch = body[i]
+        if ch in " \t\r\n,":
+            i += 1
+            continue
+        if ch == "'" or ch == '"':
+            quote = ch
+            j = i + 1
+            buf: list[str] = []
+            while j < n:
+                c = body[j]
+                if c == "\\" and j + 1 < n:
+                    nxt = body[j + 1]
+                    buf.append(nxt)
+                    j += 2
+                elif c == quote:
+                    break
+                else:
+                    buf.append(c)
+                    j += 1
+            out.append("".join(buf))
+            i = j + 1
+        else:
+            i += 1
+    return out
+
+
 def fetch_puzzles(source: str) -> dict:
     """Return {category: [desc_json_string, ...]} from circle9puzzle.com/bbtrio/bbtrio.puzzles.js."""
     if source.startswith("http"):
@@ -65,8 +99,6 @@ def fetch_puzzles(source: str) -> dict:
             text = r.read().decode("utf-8")
     else:
         text = Path(source).read_text()
-    # The file defines BBTRIO.puzzles = {}; and then entries like
-    # BBTRIO.puzzles["Standard"] = [ '...', '...', ... ];
     out: dict[str, list[str]] = {}
     for cat in ("Standard", "Advanced", "Expert"):
         m = re.search(
@@ -76,12 +108,7 @@ def fetch_puzzles(source: str) -> dict:
         )
         if not m:
             continue
-        body = m.group(1)
-        # Entries are single-quoted strings separated by commas+whitespace.
-        # The JSON inside uses double quotes, so splitting on lines is safe
-        # enough but we be pedantic and strip trailing comma / whitespace.
-        items = re.findall(r"'((?:\\'|[^'])*)'", body)
-        out[cat] = items
+        out[cat] = _extract_js_string_list(m.group(1))
     return out
 
 

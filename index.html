@@ -684,6 +684,7 @@ EEEFFF
     if (!finishedAt) {
       finishedAt = Date.now();
       saveStore();
+      markCompleted(currentCategory);
       stopTicking();
       renderTimer();
       renderTabs();
@@ -802,15 +803,34 @@ EEEFFF
     statusEl.style.color = bad ? "var(--bad)" : "";
   }
 
+  const COMPLETED_KEY = () => `${STORE_PREFIX}${todayKey()}:completed`;
+  function loadCompleted() {
+    try {
+      const raw = localStorage.getItem(COMPLETED_KEY());
+      if (!raw) return {};
+      return JSON.parse(raw);
+    } catch { return {}; }
+  }
+  function markCompleted(cat) {
+    const data = loadCompleted();
+    data[cat] = Date.now();
+    try { localStorage.setItem(COMPLETED_KEY(), JSON.stringify(data)); } catch {}
+  }
   function isCategoryUnlocked(cat) {
     if (cat === "Standard") return true;
     const prev = cat === "Advanced" ? "Standard" : "Advanced";
+    // Unlock is permanent once earned today (Reset on the previous category
+    // shouldn't re-lock this one).
+    const completed = loadCompleted();
+    if (completed[prev]) return true;
     const stored = loadStore(prev);
     return !!(stored && stored.finishedAt);
   }
   function categoryFinishedAt(cat) {
     const stored = loadStore(cat);
-    return stored && stored.finishedAt ? stored.finishedAt : null;
+    if (stored && stored.finishedAt) return stored.finishedAt;
+    const completed = loadCompleted();
+    return completed[cat] || null;
   }
   function renderTabs() {
     const tabs = document.getElementById("tabs");

@@ -104,6 +104,7 @@
     button:hover { background: #efe9dc; }
   }
   button:disabled { opacity: 0.4; cursor: default; }
+  button.active { background: var(--line); color: var(--bg); }
   .status {
     font-size: 13px; color: var(--muted);
     min-height: 1.2em; margin-top: 14px;
@@ -174,6 +175,7 @@
     <button id="undo" type="button" disabled>Undo</button>
     <button id="check" type="button">Check</button>
     <button id="reset" type="button">Reset</button>
+    <button id="log" type="button">Log</button>
   </div>
   <div id="status" class="status" role="status" aria-live="polite"></div>
   <div id="analysis" class="analysis"></div>
@@ -371,7 +373,7 @@ EEEFFF
     let maxUsed = 0;
     while (true) {
       if (!solverPropagate(state)) return { solved: false, maxUsed };
-      if (solverComplete(state)) return { solved: true, maxUsed };
+      if (solverComplete(state)) return { solved: true, maxUsed, solution: state };
       let progress = false;
       for (let depth = 1; depth <= maxDepth && !progress; depth++) {
         for (let r = 0; r < SIZE && !progress; r++)
@@ -389,8 +391,30 @@ EEEFFF
             }
           }
       }
-      if (!progress) return { solved: false, maxUsed };
+      if (!progress) return { solved: false, maxUsed, solution: state };
     }
+  }
+  // Full DFS fallback when Nishio alone can't finish — used to capture
+  // the unique solution even for puzzles needing deeper reasoning.
+  function solveDFS() {
+    const start = solverStartingState();
+    const rec = (s) => {
+      if (!solverPropagate(s)) return null;
+      let target = null;
+      outer: for (let r = 0; r < SIZE; r++)
+        for (let c = 0; c < SIZE; c++) {
+          if (!isClueCell(r, c) && s[r][c] === 0) { target = [r, c]; break outer; }
+        }
+      if (!target) return s;
+      for (const v of [1, 2]) {
+        const t = s.map(row => row.slice());
+        t[target[0]][target[1]] = v;
+        const r = rec(t);
+        if (r) return r;
+      }
+      return null;
+    };
+    return rec(start);
   }
   function solverStartingState() {
     const s = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
@@ -404,7 +428,12 @@ EEEFFF
     buildSolverTables();
     const res = solveNishio(2); // cap at depth 2 so page load stays snappy
     DIFFICULTY_DEPTH = res.solved ? res.maxUsed : null;
-    if (puzzleDefs[currentCategory]) puzzleDefs[currentCategory].difficulty = DIFFICULTY_DEPTH;
+    let solution = res.solution || null;
+    if (!solution) solution = solveDFS();
+    if (puzzleDefs[currentCategory]) {
+      puzzleDefs[currentCategory].difficulty = DIFFICULTY_DEPTH;
+      puzzleDefs[currentCategory].solution = solution;
+    }
   }
   function difficultyLabel() {
     if (DIFFICULTY_DEPTH == null) return null;
@@ -699,6 +728,7 @@ EEEFFF
   }
 
   function autoCheck() {
+    if (analysisVisible) renderAnalysis();
     // Need exactly PER berries in every row, column, and block, and every clue satisfied.
     for (let r = 0; r < SIZE; r++) {
       let n = 0;
@@ -848,13 +878,14 @@ EEEFFF
   }
 
   function buildAnalysis() {
-    // Replay clicks/undo/reset against the puzzle to get the final solved state.
     const sz = SIZE;
     const empty = () => Array.from({ length: sz }, () => Array(sz).fill(0));
     const MISCLICK_MS = 2000;
+    // Classification uses the puzzle's unique solution (computed at boot).
+    // Falls back to the post-solve state if the solver couldn't finish.
+    let finalState = (puzzleDefs[currentCategory] || {}).solution;
     let s = empty();
     const stack = [];
-    // snapshots[i] is the state *after* moveLog[i]; snapshots[i].t === moveLog[i].t.
     const snapshots = [];
     for (const e of moveLog) {
       if (e.type === "click") { stack.push(s.map(r => r.slice())); s[e.r][e.c] = e.to; }
@@ -863,7 +894,7 @@ EEEFFF
       snapshots.push({ t: e.t, state: s.map(r => r.slice()) });
       if (e.type === "solve") break;
     }
-    const finalState = s;
+    if (!finalState) finalState = s;
 
     // A click is a 'misclick' if the same cell returns to its pre-click value
     // within MISCLICK_MS (via undo, a cycle of clicks, or a reset).
@@ -927,11 +958,12 @@ EEEFFF
     return out;
   }
 
+  let analysisVisible = false;
   function renderAnalysis() {
     const el = document.getElementById("analysis");
     if (!el) return;
     el.innerHTML = "";
-    if (!finishedAt) return;
+    if (!finishedAt && !analysisVisible) return;
     const moves = buildAnalysis();
     if (!moves.length) return;
     for (const m of moves) {
@@ -1047,6 +1079,12 @@ EEEFFF
     e.currentTarget.blur();
   });
   document.getElementById("check").addEventListener("click", (e) => { fullCheck(); e.currentTarget.blur(); });
+  document.getElementById("log").addEventListener("click", (e) => {
+    analysisVisible = !analysisVisible;
+    e.currentTarget.classList.toggle("active", analysisVisible);
+    renderAnalysis();
+    e.currentTarget.blur();
+  });
   undoBtn.addEventListener("click", (e) => { undo(); e.currentTarget.blur(); });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {

@@ -175,7 +175,7 @@
     <button id="undo" type="button" disabled>Undo</button>
     <button id="check" type="button">Check</button>
     <button id="reset" type="button">Reset</button>
-    <button id="log" type="button">Log</button>
+    <button id="log" type="button" style="display:none">Log</button>
   </div>
   <div id="status" class="status" role="status" aria-live="polite"></div>
   <div id="analysis" class="analysis"></div>
@@ -762,6 +762,7 @@ EEEFFF
       stopTicking();
       renderTimer();
       renderTabs();
+    updateLogButtonVis();
     }
     const label = difficultyLabel();
     const parts = ["Solved!"];
@@ -959,6 +960,11 @@ EEEFFF
   }
 
   let analysisVisible = false;
+  function updateLogButtonVis() {
+    const btn = document.getElementById("log");
+    if (!btn) return;
+    btn.style.display = finishedAt ? "" : "none";
+  }
   function renderAnalysis() {
     const el = document.getElementById("analysis");
     if (!el) return;
@@ -1058,19 +1064,29 @@ EEEFFF
     moveLog.push({ t: elapsedMs(), type: "switch_in", from });
     saveStore();
     renderTabs();
+    updateLogButtonVis();
   }
   function resetBoard() {
-    // Push current state as an undo checkpoint so Reset is itself reversible.
-    pushHistory();
     state = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    history = [];
+    moveLog = [];
+    undoCount = 0;
     if (finishedAt) {
       finishedAt = null;
       setStatus("");
       resumeTimer();
       startTicking();
     }
-    moveLog.push({ t: elapsedMs(), type: "reset" });
+    analysisVisible = false;
+    const logBtn = document.getElementById("log");
+    logBtn.classList.remove("active");
+    renderUndoCount();
+    updateUndo();
+    updateLogButtonVis();
     render();
+    // Clear analysis panel explicitly (buildAnalysis would have nothing anyway).
+    const aEl = document.getElementById("analysis");
+    if (aEl) aEl.innerHTML = "";
     saveStore();
     autoCheck();
   }
@@ -1208,6 +1224,7 @@ EEEFFF
       buildSolverTables();
       init();
       renderTabs();
+    updateLogButtonVis();
       return;
     }
     const today = new Date();
@@ -1234,6 +1251,7 @@ EEEFFF
     buildSolverTables();
     init();
     renderTabs();
+    updateLogButtonVis();
   }
   window.__bbtrio = () => ({
     currentCategory,

@@ -1067,26 +1067,33 @@ EEEFFF
     updateLogButtonVis();
   }
   function resetBoard() {
-    state = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
-    history = [];
-    moveLog = [];
-    undoCount = 0;
+    const wasEverSolved = !!categoryFinishedAt(currentCategory);
+    if (wasEverSolved) {
+      // Replay mode: wipe all history so the fresh run starts clean.
+      state = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+      history = [];
+      moveLog = [];
+      undoCount = 0;
+      analysisVisible = false;
+      document.getElementById("log").classList.remove("active");
+      const aEl = document.getElementById("analysis");
+      if (aEl) aEl.innerHTML = "";
+    } else {
+      // First attempt: preserve history/log so Reset itself is reversible.
+      pushHistory();
+      state = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+      moveLog.push({ t: elapsedMs(), type: "reset" });
+    }
     if (finishedAt) {
       finishedAt = null;
       setStatus("");
       resumeTimer();
       startTicking();
     }
-    analysisVisible = false;
-    const logBtn = document.getElementById("log");
-    logBtn.classList.remove("active");
     renderUndoCount();
     updateUndo();
     updateLogButtonVis();
     render();
-    // Clear analysis panel explicitly (buildAnalysis would have nothing anyway).
-    const aEl = document.getElementById("analysis");
-    if (aEl) aEl.innerHTML = "";
     saveStore();
     autoCheck();
   }

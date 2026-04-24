@@ -946,9 +946,10 @@ EEEFFF
       const cols = minC === maxC ? colLabel(minC) : `${colLabel(minC)}-${colLabel(maxC)}`;
       return `block(${rows}, ${cols})`;
     }
-    // Irregular block → list all cells (chess-style).
-    cells.sort((a, b) => a[0] === b[0] ? a[1] - b[1] : a[0] - b[0]);
-    return `block(${cells.map(([r, c]) => cellLabel(r, c)).join(",")})`;
+    // Irregular block → point to its top-left cell (smallest col on the top row).
+    let topLeftC = SIZE;
+    for (const [r, c] of cells) if (r === minR && c < topLeftC) topLeftC = c;
+    return `block(containing ${cellLabel(minR, topLeftC)})`;
   }
 
   function computeSatisfied(state) {

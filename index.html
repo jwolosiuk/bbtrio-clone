@@ -409,8 +409,22 @@ EEEFFF
   const HISTORY_MAX = 200;
   let state;
   let history;     // array of { state, finishedAt } snapshots BEFORE each action
-  let startedAt;   // ms timestamp when the current attempt began
-  let finishedAt;  // ms timestamp when the puzzle was solved (null while unsolved)
+  let accumulatedMs;  // total active time (visible + current category) saved so far
+  let lastResumedAt;  // timestamp when the current active segment began, or null when paused
+  let finishedAt;     // ms timestamp when the puzzle was solved (null while unsolved)
+  function elapsedMs() {
+    if (lastResumedAt !== null && !finishedAt) return accumulatedMs + (Date.now() - lastResumedAt);
+    return accumulatedMs;
+  }
+  function pauseTimer() {
+    if (lastResumedAt !== null) {
+      accumulatedMs += Date.now() - lastResumedAt;
+      lastResumedAt = null;
+    }
+  }
+  function resumeTimer() {
+    if (lastResumedAt === null && !finishedAt && !document.hidden) lastResumedAt = Date.now();
+  }
   let moveLog;     // array of { t, r, c, from, to } — forward user clicks only
   let undoCount;   // number of undo button presses this attempt
   let tickHandle = null;
@@ -433,7 +447,7 @@ EEEFFF
   function saveStore() {
     try {
       localStorage.setItem(storeKey(currentCategory), JSON.stringify({
-        state, startedAt, finishedAt, history, moveLog, undoCount
+        state, accumulatedMs: elapsedMs(), finishedAt, history, moveLog, undoCount
       }));
     } catch {}
   }
@@ -462,22 +476,27 @@ EEEFFF
 
   function init(fresh = false) {
     const stored = fresh ? null : loadStore();
+    // On Reset we want to keep the time already spent on this puzzle.
+    const carryOver = fresh && (accumulatedMs !== undefined) ? elapsedMs() : 0;
     if (stored) {
       state = stored.state;
-      startedAt = stored.startedAt || Date.now();
+      accumulatedMs = Number.isFinite(stored.accumulatedMs) ? stored.accumulatedMs : 0;
       finishedAt = stored.finishedAt || null;
       history = Array.isArray(stored.history) ? stored.history : [];
       moveLog = Array.isArray(stored.moveLog) ? stored.moveLog : [];
       undoCount = Number.isFinite(stored.undoCount) ? stored.undoCount : 0;
     } else {
       state = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
-      startedAt = Date.now();
+      // Reset keeps the timer by carrying over the already-accumulated time.
+      accumulatedMs = carryOver;
       finishedAt = null;
       history = [];
       moveLog = [];
       undoCount = 0;
-      saveStore();
     }
+    lastResumedAt = null;
+    resumeTimer();
+    if (!stored) saveStore();
     updateUndo();
     renderUndoCount();
     // Block iOS Safari double-tap-zoom over the whole board, including clue cells.
@@ -526,7 +545,7 @@ EEEFFF
     const to = (from + delta) % 3;
     pushHistory();
     state[r][c] = to;
-    moveLog.push({ t: Date.now() - startedAt, r, c, from, to });
+    moveLog.push({ t: elapsedMs(), r, c, from, to });
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     render();
     saveStore();
@@ -552,7 +571,7 @@ EEEFFF
     if (from === to) return;
     pushHistory();
     state[r][c] = to;
-    moveLog.push({ t: Date.now() - startedAt, r, c, from, to });
+    moveLog.push({ t: elapsedMs(), r, c, from, to });
     render();
     saveStore();
     autoCheck();
@@ -590,7 +609,11 @@ EEEFFF
     state = prev.state.map(row => row.slice());
     const wasFinished = !!finishedAt;
     finishedAt = prev.finishedAt || null;
-    if (wasFinished && !finishedAt) { setStatus(""); startTicking(); }
+    if (wasFinished && !finishedAt) {
+      setStatus("");
+      resumeTimer();
+      startTicking();
+    }
     undoCount++;
     renderUndoCount();
     updateUndo();
@@ -682,6 +705,7 @@ EEEFFF
       if (countNeighbors(r, c) !== clues[key]) { setStatus(""); return; }
     }
     if (!finishedAt) {
+      pauseTimer();
       finishedAt = Date.now();
       saveStore();
       markCompleted(currentCategory);
@@ -710,8 +734,7 @@ EEEFFF
     return hh > 0 ? `${hh}:${pad(mm)}:${pad(ss)}` : `${pad(mm)}:${pad(ss)}`;
   }
   function renderTimer() {
-    const end = finishedAt || Date.now();
-    timerEl.textContent = formatTime(end - startedAt);
+    timerEl.textContent = formatTime(elapsedMs());
     timerEl.classList.toggle("win", !!finishedAt);
   }
   function startTicking() {
@@ -860,7 +883,8 @@ EEEFFF
   function switchCategory(cat) {
     if (cat === currentCategory) return;
     if (!isCategoryUnlocked(cat)) return;
-    saveStore(); // flush current category before switching
+    pauseTimer();           // freeze previous category's clock
+    saveStore();            // persist with frozen accumulatedMs
     stopTicking();
     currentCategory = cat;
     activateCategoryPuzzle(cat);
@@ -877,9 +901,17 @@ EEEFFF
   document.getElementById("check").addEventListener("click", (e) => { fullCheck(); e.currentTarget.blur(); });
   undoBtn.addEventListener("click", (e) => { undo(); e.currentTarget.blur(); });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopTicking();
-    else { renderTimer(); startTicking(); }
+    if (document.hidden) {
+      pauseTimer();
+      saveStore();
+      stopTicking();
+    } else {
+      resumeTimer();
+      renderTimer();
+      startTicking();
+    }
   });
+  window.addEventListener("pagehide", () => { pauseTimer(); saveStore(); });
 
   async function fetchText(url) {
     const res = await fetch(url, { cache: "no-store" });
@@ -898,17 +930,67 @@ EEEFFF
       el.innerHTML = `<a href="${repo}/commit/${v.fullSha || v.sha}" target="_blank" rel="noopener">${v.sha || ""}</a> · ${built}`;
     } catch {}
   }
+  // cyrb53 from https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js
+  function cyrb53(str, seed = 0) {
+    let h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+    for (let i = 0, ch; i < str.length; i++) {
+      ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+  }
+  const CAT_KEY = { Standard: "S", Advanced: "A", Expert: "E" };
+  function pickDailyEntry(pool, cat, date) {
+    const ds = `${date.getDate()} ${date.getMonth() + 1} ${date.getFullYear()}`;
+    const lst = pool[CAT_KEY[cat]];
+    return lst[cyrb53(`${ds} ${cat} Daily 0`) % lst.length];
+  }
+  function entryToPuzzleText(entry) {
+    const [blocks, clues] = entry.split("|");
+    const cellLines = [], groupLines = [];
+    for (let r = 0; r < 9; r++) {
+      let cRow = "", gRow = "";
+      for (let c = 0; c < 9; c++) {
+        cRow += clues[r * 9 + c];
+        gRow += String.fromCharCode(65 + (blocks.charCodeAt(r * 9 + c) - 48));
+      }
+      cellLines.push(cRow);
+      groupLines.push(gRow);
+    }
+    return cellLines.join("\n") + "\n\n" + groupLines.join("\n");
+  }
   async function boot() {
     renderBuildInfo();
     pruneOldStorage();
+    let pool;
+    try {
+      const res = await fetch("puzzles.json", { cache: "force-cache" });
+      if (!res.ok) throw new Error(`puzzles.json HTTP ${res.status}`);
+      pool = await res.json();
+    } catch (err) {
+      console.warn("using fallback puzzle, puzzles.json missing:", err.message);
+      // Minimal fallback keeps the app playable offline.
+      applyPuzzle(FALLBACK_PUZZLE);
+      buildSolverTables();
+      computeDifficulty();
+      puzzleDefs.Standard = { SIZE, PER, clues, givens, groupOf, difficulty: DIFFICULTY_DEPTH };
+      puzzleDefs.Advanced = puzzleDefs.Standard;
+      puzzleDefs.Expert = puzzleDefs.Standard;
+      currentCategory = "Standard";
+      activateCategoryPuzzle("Standard");
+      buildSolverTables();
+      init();
+      renderTabs();
+      return;
+    }
+    const today = new Date();
     for (const cat of CATEGORIES) {
-      let text;
-      try {
-        text = await fetchText(`puzzle-${cat.toLowerCase()}.txt`);
-      } catch (err) {
-        console.warn(`${cat}: using fallback`, err.message);
-        text = FALLBACK_PUZZLE;
-      }
+      const text = entryToPuzzleText(pickDailyEntry(pool, cat, today));
       const p = parsePuzzle(text);
       puzzleDefs[cat] = { ...p, difficulty: null };
     }
@@ -935,9 +1017,10 @@ EEEFFF
     currentCategory,
     moveLog: moveLog.slice(),
     undoCount,
-    startedAt,
+    accumulatedMs,
+    lastResumedAt,
     finishedAt,
-    elapsedMs: (finishedAt || Date.now()) - startedAt,
+    elapsedMs: elapsedMs(),
     state: state.map(row => row.slice()),
     clues: { ...clues },
     givens: { ...givens },

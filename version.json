@@ -1,1 +1,1 @@
-{"sha":"c293bb0","fullSha":"c293bb05e8c968b270a504d62f64217285d5107f","built":"2026-04-24T05:15:40Z","message":"Analysis: one line per good move with preceding gap"}
+{"sha":"e3d0f53","fullSha":"e3d0f53bc55ede28d6e263a2acf4f826743b9fea","built":"2026-04-24T05:25:26Z","message":"Detect misclicks: clicks reverted within 2s count separately"}

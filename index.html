@@ -963,7 +963,9 @@ EEEFFF
   function updateLogButtonVis() {
     const btn = document.getElementById("log");
     if (!btn) return;
-    btn.style.display = finishedAt ? "" : "none";
+    // Show the Log button once the category has been solved at least once
+    // today, so replays can watch it live.
+    btn.style.display = categoryFinishedAt(currentCategory) ? "" : "none";
   }
   function renderAnalysis() {
     const el = document.getElementById("analysis");

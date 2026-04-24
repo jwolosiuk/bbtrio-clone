@@ -892,10 +892,22 @@ EEEFFF
     init(false);
     renderTabs();
   }
+  function resetBoard() {
+    // Push current state as an undo checkpoint so Reset is itself reversible.
+    pushHistory();
+    state = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    if (finishedAt) {
+      finishedAt = null;
+      setStatus("");
+      resumeTimer();
+      startTicking();
+    }
+    render();
+    saveStore();
+    autoCheck();
+  }
   document.getElementById("reset").addEventListener("click", (e) => {
-    clearStore();
-    init(true);
-    renderTabs();
+    resetBoard();
     e.currentTarget.blur();
   });
   document.getElementById("check").addEventListener("click", (e) => { fullCheck(); e.currentTarget.blur(); });

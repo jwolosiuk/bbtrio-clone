@@ -1,1 +1,1 @@
-{"sha":"1a48b85","fullSha":"1a48b85083527cdee66a3a84d3c92c88ee7e8869","built":"2026-04-24T04:21:23Z","message":"Fix puzzle extraction bug + stop Reset from re-locking unlocked tabs"}
+{"sha":"31ff25d","fullSha":"31ff25d7e683fdb2f06b7645d103829f755e9355","built":"2026-04-24T04:34:33Z","message":"Drop daily cron, pick puzzle client-side, smarter timer"}

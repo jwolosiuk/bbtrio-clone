@@ -909,7 +909,24 @@ EEEFFF
       }
     }
 
-    // Classify each click against the final state.
+    // Classify each click against the final state. Because the cycle goes
+    // empty → × → berry, placing a berry requires two clicks through ×;
+    // classify intermediate × clicks as 'good' when the user continues the
+    // cycle to the correct value on the same cell within a short window.
+    const BURST_MS = 2000;
+    const onTheWayToGood = (i) => {
+      const e = moveLog[i];
+      const sol = finalState[e.r][e.c];
+      for (let j = i + 1; j < moveLog.length; j++) {
+        const f = moveLog[j];
+        if (f.t - e.t > BURST_MS) return false;
+        if (f.type === "undo" || f.type === "reset") return false;
+        if (f.type !== "click") continue;
+        if (f.r !== e.r || f.c !== e.c) return false; // switched to another cell
+        if (f.to === sol) return true;
+      }
+      return false;
+    };
     s = empty(); stack.length = 0;
     const labels = [];
     for (let i = 0; i < moveLog.length; i++) {
@@ -917,7 +934,8 @@ EEEFFF
       if (e.type === "click") {
         stack.push(s.map(r => r.slice()));
         s[e.r][e.c] = e.to;
-        labels.push(finalState[e.r][e.c] === e.to ? "good" : "trial");
+        const good = finalState[e.r][e.c] === e.to || onTheWayToGood(i);
+        labels.push(good ? "good" : "trial");
       } else if (e.type === "undo") {
         if (stack.length) s = stack.pop();
         labels.push("undo");

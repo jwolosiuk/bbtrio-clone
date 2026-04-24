@@ -1,1 +1,1 @@
-{"sha":"e30d1e6","fullSha":"e30d1e60e957330508bc12c391149494f0716c0e","built":"2026-04-24T04:15:25Z","message":"Daily puzzles for 2026-04-24 (manual) + re-probe puzzles.js [skip stamp]"}
+{"sha":"1a48b85","fullSha":"1a48b85083527cdee66a3a84d3c92c88ee7e8869","built":"2026-04-24T04:21:23Z","message":"Fix puzzle extraction bug + stop Reset from re-locking unlocked tabs"}

@@ -115,6 +115,7 @@
   }
   .build-info a { color: inherit; text-decoration: none; }
   .build-info a:hover { text-decoration: underline; }
+  .build-info .dl { cursor: pointer; margin-right: 8px; }
   .legend { margin-top: 14px; color: var(--muted); font-size: 12px; }
   .legend kbd {
     background: #efe9dc; border: 1px solid var(--thin); border-bottom-width: 2px;
@@ -545,7 +546,7 @@ EEEFFF
     const to = (from + delta) % 3;
     pushHistory();
     state[r][c] = to;
-    moveLog.push({ t: elapsedMs(), r, c, from, to });
+    moveLog.push({ t: elapsedMs(), type: "click", r, c, from, to });
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     render();
     saveStore();
@@ -571,7 +572,7 @@ EEEFFF
     if (from === to) return;
     pushHistory();
     state[r][c] = to;
-    moveLog.push({ t: elapsedMs(), r, c, from, to });
+    moveLog.push({ t: elapsedMs(), type: "click", r, c, from, to });
     render();
     saveStore();
     autoCheck();
@@ -615,6 +616,7 @@ EEEFFF
       startTicking();
     }
     undoCount++;
+    moveLog.push({ t: elapsedMs(), type: "undo" });
     renderUndoCount();
     updateUndo();
     render();
@@ -707,6 +709,7 @@ EEEFFF
     if (!finishedAt) {
       pauseTimer();
       finishedAt = Date.now();
+      moveLog.push({ t: elapsedMs(), type: "solve" });
       saveStore();
       markCompleted(currentCategory);
       stopTicking();
@@ -884,12 +887,16 @@ EEEFFF
     if (cat === currentCategory) return;
     if (!isCategoryUnlocked(cat)) return;
     pauseTimer();           // freeze previous category's clock
+    const from = currentCategory;
+    moveLog.push({ t: elapsedMs(), type: "switch_out", to: cat });
     saveStore();            // persist with frozen accumulatedMs
     stopTicking();
     currentCategory = cat;
     activateCategoryPuzzle(cat);
     buildSolverTables();
     init(false);
+    moveLog.push({ t: elapsedMs(), type: "switch_in", from });
+    saveStore();
     renderTabs();
   }
   function resetBoard() {
@@ -902,6 +909,7 @@ EEEFFF
       resumeTimer();
       startTicking();
     }
+    moveLog.push({ t: elapsedMs(), type: "reset" });
     render();
     saveStore();
     autoCheck();
@@ -914,11 +922,14 @@ EEEFFF
   undoBtn.addEventListener("click", (e) => { undo(); e.currentTarget.blur(); });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
+      moveLog.push({ t: elapsedMs(), type: "hide" });
       pauseTimer();
       saveStore();
       stopTicking();
     } else {
       resumeTimer();
+      moveLog.push({ t: elapsedMs(), type: "show" });
+      saveStore();
       renderTimer();
       startTicking();
     }
@@ -933,14 +944,47 @@ EEEFFF
   async function renderBuildInfo() {
     const el = document.getElementById("build-info");
     if (!el) return;
+    el.innerHTML = "";
+    const dl = document.createElement("a");
+    dl.href = "#";
+    dl.className = "dl";
+    dl.textContent = "⬇ log";
+    dl.addEventListener("click", (e) => { e.preventDefault(); downloadLog(); });
+    el.appendChild(dl);
     try {
       const res = await fetch("version.json", { cache: "no-store" });
       if (!res.ok) return;
       const v = await res.json();
       const built = v.built ? v.built.replace(/[TZ]/g, " ").trim() : "";
       const repo = "https://github.com/jwolosiuk/bbtrio-clone";
-      el.innerHTML = `<a href="${repo}/commit/${v.fullSha || v.sha}" target="_blank" rel="noopener">${v.sha || ""}</a> · ${built}`;
+      const span = document.createElement("span");
+      span.innerHTML = `<a href="${repo}/commit/${v.fullSha || v.sha}" target="_blank" rel="noopener">${v.sha || ""}</a> · ${built}`;
+      el.appendChild(span);
     } catch {}
+  }
+  function downloadLog() {
+    pauseTimer();
+    saveStore();
+    resumeTimer();
+    const today = todayKey();
+    const snapshot = {
+      date: today,
+      currentCategory,
+      completed: loadCompleted(),
+      categories: {},
+    };
+    for (const cat of CATEGORIES) {
+      snapshot.categories[cat] = loadStore(cat);
+    }
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bbtrio-${today}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   // cyrb53 from https://github.com/bryc/code/blob/master/jshash/experimental/cyrb53.js
   function cyrb53(str, seed = 0) {

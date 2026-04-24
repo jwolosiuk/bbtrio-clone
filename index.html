@@ -618,7 +618,7 @@ EEEFFF
     if (from === to) return;
     pushHistory();
     state[r][c] = to;
-    moveLog.push({ t: elapsedMs(), type: "click", r, c, from, to });
+    moveLog.push({ t: elapsedMs(), type: "click", r, c, from, to, cont: true });
     render();
     saveStore();
     autoCheck();
@@ -882,9 +882,31 @@ EEEFFF
     const sz = SIZE;
     const empty = () => Array.from({ length: sz }, () => Array(sz).fill(0));
     const MISCLICK_MS = 2000;
-    // Classification uses the puzzle's unique solution (computed at boot).
-    // Falls back to the post-solve state if the solver couldn't finish.
     let finalState = (puzzleDefs[currentCategory] || {}).solution;
+
+    // Step 1: group click events into 'actions'. An action is either a
+    // single tap, a swipe (leading click + cont:true clicks), or a cycle
+    // (two clicks on the same cell within 2 s). Non-click events are
+    // standalone actions.
+    const actions = [];
+    let ai = 0;
+    while (ai < moveLog.length) {
+      const e = moveLog[ai];
+      if (e.type !== "click") { actions.push({ type: e.type, t: e.t, indices: [ai] }); ai++; continue; }
+      const idx = [ai]; let j = ai + 1;
+      while (j < moveLog.length) {
+        const f = moveLog[j];
+        if (f.type !== "click") break;
+        if (f.cont) { idx.push(j); j++; continue; }
+        const prev = moveLog[idx[idx.length - 1]];
+        if (f.r === prev.r && f.c === prev.c && f.t - prev.t < 2000) { idx.push(j); j++; continue; }
+        break;
+      }
+      actions.push({ type: "click", t: e.t, indices: idx });
+      ai = j;
+    }
+
+    // Step 2: replay to get final state.
     let s = empty();
     const stack = [];
     const snapshots = [];
@@ -909,69 +931,77 @@ EEEFFF
       }
     }
 
-    // Classify each click against the final state. Because the cycle goes
-    // empty → × → berry, placing a berry requires two clicks through ×;
-    // classify intermediate × clicks as 'good' when the user continues the
-    // cycle to the correct value on the same cell within a short window.
-    const BURST_MS = 2000;
-    const onTheWayToGood = (i) => {
-      const e = moveLog[i];
-      const sol = finalState[e.r][e.c];
-      for (let j = i + 1; j < moveLog.length; j++) {
-        const f = moveLog[j];
-        if (f.t - e.t > BURST_MS) return false;
-        if (f.type === "undo" || f.type === "reset") return false;
-        if (f.type !== "click") continue;
-        if (f.r !== e.r || f.c !== e.c) return false; // switched to another cell
-        if (f.to === sol) return true;
-      }
-      return false;
-    };
+    // Step 3: classify each action.
+    // For a click action, walk its events applying them to a fresh state per
+    // the replay (to get the state *after* the action). Each cell touched by
+    // the action ends with some value; compare to the solution. Action is
+    // 'good' if every touched cell's final value equals solution value.
     s = empty(); stack.length = 0;
-    const labels = [];
-    for (let i = 0; i < moveLog.length; i++) {
-      const e = moveLog[i];
-      if (e.type === "click") {
+    const classifyClickAction = (a) => {
+      const touched = new Map(); // "r,c" -> value after the action
+      for (const idx of a.indices) {
+        const e = moveLog[idx];
         stack.push(s.map(r => r.slice()));
         s[e.r][e.c] = e.to;
-        const good = finalState[e.r][e.c] === e.to || onTheWayToGood(i);
-        labels.push(good ? "good" : "trial");
-      } else if (e.type === "undo") {
+        touched.set(`${e.r},${e.c}`, e.to);
+      }
+      let allGood = true;
+      for (const [key, v] of touched) {
+        const [r, c] = key.split(",").map(Number);
+        if (finalState[r][c] !== v) { allGood = false; break; }
+      }
+      return { label: allGood ? "good" : "trial", touched };
+    };
+    const actionInfo = [];
+    for (const a of actions) {
+      if (a.type === "click") {
+        const info = classifyClickAction(a);
+        actionInfo.push({ ...a, label: info.label, touched: info.touched });
+      } else if (a.type === "undo") {
         if (stack.length) s = stack.pop();
-        labels.push("undo");
-      } else if (e.type === "reset") {
+        actionInfo.push({ ...a, label: "undo" });
+      } else if (a.type === "reset") {
         stack.push(s.map(r => r.slice())); s = empty();
-        labels.push("reset");
+        actionInfo.push({ ...a, label: "reset" });
       } else {
-        labels.push("system");
+        actionInfo.push({ ...a, label: "system" });
       }
     }
 
-    // One entry per 'good' move with the preceding gap.
+    // Step 4: emit one entry per good action, describing the preceding gap.
     const out = [];
     let lastGoodT = 0;
     let trialStart = null;
-    let trialCounts = { clicks: 0, undos: 0, resets: 0, misclicks: 0 };
-    const resetTrial = () => { trialStart = null; trialCounts = { clicks: 0, undos: 0, resets: 0, misclicks: 0 }; };
-    for (let i = 0; i < moveLog.length; i++) {
-      const e = moveLog[i], lbl = labels[i];
-      if (lbl === "good") {
+    let trialCounts = { actions: 0, undos: 0, resets: 0, misclicks: 0 };
+    const resetTrial = () => { trialStart = null; trialCounts = { actions: 0, undos: 0, resets: 0, misclicks: 0 }; };
+    for (const a of actionInfo) {
+      if (a.label === "good") {
         let gap;
-        if (trialStart !== null) {
-          gap = { kind: "trial", dur: e.t - trialStart, ...trialCounts };
-        } else {
-          gap = { kind: "thinking", dur: e.t - lastGoodT };
-        }
-        out.push({ t: e.t, r: e.r, c: e.c, to: e.to, misclick: misclick[i], gap });
-        lastGoodT = e.t;
+        if (trialStart !== null) gap = { kind: "trial", dur: a.t - trialStart, ...trialCounts };
+        else gap = { kind: "thinking", dur: a.t - lastGoodT };
+        const cellCount = a.touched.size;
+        const clickCount = a.indices.length;
+        const kind = cellCount > 1 ? "swipe" : (clickCount > 1 ? "cycle" : "tap");
+        const lastEvent = moveLog[a.indices[a.indices.length - 1]];
+        out.push({ t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap });
+        lastGoodT = lastEvent.t;
         resetTrial();
-      } else if (lbl === "trial" || lbl === "undo" || lbl === "reset") {
-        if (trialStart === null) trialStart = e.t;
-        if (lbl === "trial") {
-          trialCounts.clicks++;
-          if (misclick[i]) trialCounts.misclicks++;
-        } else if (lbl === "undo") trialCounts.undos++;
-        else trialCounts.resets++;
+      } else if (a.label === "trial") {
+        if (trialStart === null) trialStart = a.t;
+        trialCounts.actions++;
+        // misclick: any touched cell reverted to pre-action value within 2s
+        const firstIdx = a.indices[0];
+        const firstE = moveLog[firstIdx];
+        for (let j = firstIdx + 1; j < snapshots.length; j++) {
+          if (snapshots[j].t - firstE.t > MISCLICK_MS) break;
+          if (snapshots[j].state[firstE.r][firstE.c] === firstE.from) { trialCounts.misclicks++; break; }
+        }
+      } else if (a.label === "undo") {
+        if (trialStart === null) trialStart = a.t;
+        trialCounts.undos++;
+      } else if (a.label === "reset") {
+        if (trialStart === null) trialStart = a.t;
+        trialCounts.resets++;
       }
     }
     return out;
@@ -1001,15 +1031,17 @@ EEEFFF
         gapText = g.dur === 0 ? "" : `${formatTime(g.dur)} myślenia`;
       } else {
         const parts = [];
-        if (g.clicks) parts.push(`${g.clicks} ruch${g.clicks === 1 ? "" : "ów"}`);
+        if (g.actions) parts.push(`${g.actions} ruch${g.actions === 1 ? "" : "ów"}`);
         if (g.misclicks) parts.push(`${g.misclicks} pomyłk${g.misclicks === 1 ? "a" : (g.misclicks < 5 ? "i" : "")}`);
         if (g.undos) parts.push(`${g.undos} undo`);
         if (g.resets) parts.push(`${g.resets} reset`);
         gapText = `próba ${formatTime(g.dur)} (${parts.join(", ")})`;
       }
+      let suffix = "";
+      if (m.kind === "swipe") suffix = ` (swipe × ${m.cells})`;
+      // cycle and tap: no suffix — ×→berry is treated as one move
       div.className = g.kind === "trial" ? "trial" : "good";
-      let body = gapText ? `✓ ${at} — ${gapText}` : `✓ ${at}`;
-      if (m.misclick) body += " · pomyłka";
+      let body = gapText ? `✓ ${at}${suffix} — ${gapText}` : `✓ ${at}${suffix}`;
       div.textContent = body;
       el.appendChild(div);
     }

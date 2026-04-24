@@ -1,1 +1,1 @@
-{"sha":"31ff25d","fullSha":"31ff25d7e683fdb2f06b7645d103829f755e9355","built":"2026-04-24T04:34:33Z","message":"Drop daily cron, pick puzzle client-side, smarter timer"}
+{"sha":"748b7a1","fullSha":"748b7a1107c08d4b794831612b6e77ad15fdc31b","built":"2026-04-24T04:47:20Z","message":"Reset only clears the board, keeps history/moveLog/undoCount"}

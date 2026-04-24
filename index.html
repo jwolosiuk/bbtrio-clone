@@ -880,25 +880,33 @@ EEEFFF
       }
     }
 
-    // Bucket consecutive events into 'good_run' (good clicks only) or 'trial_run'
-    // (any non-good action with at least one click).
+    // Walk labels and produce one entry per 'good' move. Each entry also
+    // describes the gap since the previous good move (either pure thinking
+    // or a trial run with its own counters).
     const out = [];
-    let cur = null;
-    const flush = () => { if (cur && (cur.type === "good_run" ? cur.count > 0 : cur.clicks > 0)) out.push(cur); cur = null; };
+    let lastGoodT = 0;
+    let trialStart = null;
+    let trialCounts = { clicks: 0, undos: 0, resets: 0 };
+    const resetTrial = () => { trialStart = null; trialCounts = { clicks: 0, undos: 0, resets: 0 }; };
     for (let i = 0; i < moveLog.length; i++) {
       const e = moveLog[i], lbl = labels[i];
       if (lbl === "good") {
-        if (!cur || cur.type !== "good_run") { flush(); cur = { type: "good_run", startT: e.t, endT: e.t, count: 0 }; }
-        cur.count++; cur.endT = e.t;
+        let gap;
+        if (trialStart !== null) {
+          gap = { kind: "trial", dur: e.t - trialStart, ...trialCounts };
+        } else {
+          gap = { kind: "thinking", dur: e.t - lastGoodT };
+        }
+        out.push({ t: e.t, r: e.r, c: e.c, to: e.to, gap });
+        lastGoodT = e.t;
+        resetTrial();
       } else if (lbl === "trial" || lbl === "undo" || lbl === "reset") {
-        if (!cur || cur.type !== "trial_run") { flush(); cur = { type: "trial_run", startT: e.t, endT: e.t, clicks: 0, undos: 0, resets: 0 }; }
-        if (lbl === "trial") cur.clicks++;
-        else if (lbl === "undo") cur.undos++;
-        else cur.resets++;
-        cur.endT = e.t;
+        if (trialStart === null) trialStart = e.t;
+        if (lbl === "trial") trialCounts.clicks++;
+        else if (lbl === "undo") trialCounts.undos++;
+        else trialCounts.resets++;
       }
     }
-    flush();
     return out;
   }
 
@@ -907,25 +915,25 @@ EEEFFF
     if (!el) return;
     el.innerHTML = "";
     if (!finishedAt) return;
-    const chunks = buildAnalysis();
-    if (!chunks.length) return;
-    for (const m of chunks) {
+    const moves = buildAnalysis();
+    if (!moves.length) return;
+    for (const m of moves) {
       const div = document.createElement("div");
-      const at = formatTime(m.startT);
-      if (m.type === "good_run") {
-        const dur = m.endT - m.startT;
-        div.className = "good";
-        div.textContent = m.count === 1
-          ? `✓ ${at} — dobry ruch`
-          : `✓ ${at} — ${m.count} dobrych ruchów (${formatTime(dur)})`;
+      div.className = "good";
+      const at = formatTime(m.t);
+      const g = m.gap;
+      let gapText;
+      if (g.kind === "thinking") {
+        gapText = g.dur === 0 ? "" : `${formatTime(g.dur)} myślenia`;
       } else {
-        const dur = m.endT - m.startT;
-        const parts = [`${m.clicks} ruch${m.clicks === 1 ? "" : "ów"}`];
-        if (m.undos) parts.push(`${m.undos} undo`);
-        if (m.resets) parts.push(`${m.resets} reset`);
-        div.className = "trial";
-        div.textContent = `✗ ${at} — próba ${formatTime(dur)} (${parts.join(", ")})`;
+        const parts = [];
+        if (g.clicks) parts.push(`${g.clicks} ruch${g.clicks === 1 ? "" : "ów"}`);
+        if (g.undos) parts.push(`${g.undos} undo`);
+        if (g.resets) parts.push(`${g.resets} reset`);
+        gapText = `próba ${formatTime(g.dur)} (${parts.join(", ")})`;
       }
+      div.textContent = gapText ? `✓ ${at} — ${gapText}` : `✓ ${at}`;
+      if (g.kind === "trial") div.className = "trial";
       el.appendChild(div);
     }
   }

@@ -1,1 +1,1 @@
-{"sha":"dda22ec","fullSha":"dda22ecc8251822362aadeaed9613ef43313045c","built":"2026-04-24T05:43:42Z","message":"Reset: wipe log only after the puzzle has been solved"}
+{"sha":"ee86eb9","fullSha":"ee86eb9bf26e34ae64e6a92f268bfa1d4cded536","built":"2026-04-24T05:47:50Z","message":"Keep Log button visible after Reset during replay"}

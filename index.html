@@ -32,8 +32,29 @@
   h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: 0.2px; }
   .rule { margin: 0; color: var(--muted); font-size: 13px; max-width: 32em; line-height: 1.45; }
 
-  .board-wrap { position: relative; }
+  .board-wrap {
+    display: inline-grid;
+    grid-template-columns: 16px auto;
+    grid-template-rows: 16px auto;
+    gap: 4px;
+    position: relative;
+  }
+  .col-labels {
+    grid-column: 2; grid-row: 1;
+    display: grid;
+    color: var(--muted); font-size: 11px;
+    font-family: ui-monospace, monospace;
+    text-align: center;
+  }
+  .row-labels {
+    grid-column: 1; grid-row: 2;
+    display: grid;
+    color: var(--muted); font-size: 11px;
+    font-family: ui-monospace, monospace;
+    align-items: center; justify-items: center;
+  }
   .board {
+    grid-column: 2; grid-row: 2;
     display: grid;
     grid-template-columns: repeat(6, 1fr);
     grid-template-rows: repeat(6, 1fr);
@@ -168,6 +189,8 @@
   </header>
 
   <div class="board-wrap">
+    <div id="col-labels" class="col-labels"></div>
+    <div id="row-labels" class="row-labels"></div>
     <div id="board" class="board" aria-label="Puzzle board"></div>
   </div>
 
@@ -550,6 +573,7 @@ EEEFFF
     board.innerHTML = "";
     board.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
     board.style.gridTemplateRows = `repeat(${SIZE}, 1fr)`;
+    buildBoardLabels();
     for (let r = 0; r < SIZE; r++) {
       for (let c = 0; c < SIZE; c++) {
         const cell = document.createElement("div");
@@ -878,6 +902,100 @@ EEEFFF
     statusEl.style.color = bad ? "var(--bad)" : "";
   }
 
+  // Chess-style coordinates: rows 1-9 top to bottom, columns a-i left to right.
+  const rowLabel = (r) => String(r + 1);
+  const colLabel = (c) => String.fromCharCode(97 + c);
+  const cellLabel = (r, c) => `${colLabel(c)}${rowLabel(r)}`;
+
+  function buildBoardLabels() {
+    const cEl = document.getElementById("col-labels");
+    const rEl = document.getElementById("row-labels");
+    if (cEl) {
+      cEl.innerHTML = "";
+      cEl.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
+      for (let c = 0; c < SIZE; c++) {
+        const d = document.createElement("div");
+        d.textContent = colLabel(c);
+        cEl.appendChild(d);
+      }
+    }
+    if (rEl) {
+      rEl.innerHTML = "";
+      rEl.style.gridTemplateRows = `repeat(${SIZE}, 1fr)`;
+      for (let r = 0; r < SIZE; r++) {
+        const d = document.createElement("div");
+        d.textContent = rowLabel(r);
+        rEl.appendChild(d);
+      }
+    }
+  }
+
+  function blockLabel(bid) {
+    let minR = SIZE, maxR = -1, minC = SIZE, maxC = -1;
+    for (let r = 0; r < SIZE; r++)
+      for (let c = 0; c < SIZE; c++)
+        if (groupOf[r][c] === bid) {
+          if (r < minR) minR = r; if (r > maxR) maxR = r;
+          if (c < minC) minC = c; if (c > maxC) maxC = c;
+        }
+    const rows = minR === maxR ? rowLabel(minR) : `${rowLabel(minR)}-${rowLabel(maxR)}`;
+    const cols = minC === maxC ? colLabel(minC) : `${colLabel(minC)}-${colLabel(maxC)}`;
+    return `block(${rows}, ${cols})`;
+  }
+
+  function computeSatisfied(state) {
+    const out = new Set();
+    // Rows
+    for (let r = 0; r < SIZE; r++) {
+      let b = 0, o = 0;
+      for (let c = 0; c < SIZE; c++) {
+        if (isClueCell(r, c)) continue;
+        if (state[r][c] === 1) b++;
+        else if (state[r][c] === 0) o++;
+      }
+      if (b === PER && o === 0) out.add(`row(${rowLabel(r)})`);
+    }
+    // Cols
+    for (let c = 0; c < SIZE; c++) {
+      let b = 0, o = 0;
+      for (let r = 0; r < SIZE; r++) {
+        if (isClueCell(r, c)) continue;
+        if (state[r][c] === 1) b++;
+        else if (state[r][c] === 0) o++;
+      }
+      if (b === PER && o === 0) out.add(`col(${colLabel(c)})`);
+    }
+    // Blocks
+    const bids = new Set();
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) bids.add(groupOf[r][c]);
+    for (const bid of bids) {
+      let b = 0, o = 0;
+      for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+        if (groupOf[r][c] !== bid || isClueCell(r, c)) continue;
+        if (state[r][c] === 1) b++;
+        else if (state[r][c] === 0) o++;
+      }
+      if (b === PER && o === 0) out.add(blockLabel(bid));
+    }
+    // Clues
+    for (const key in clues) {
+      const [r, c] = key.split(",").map(Number);
+      const want = clues[key];
+      let b = 0, o = 0;
+      for (let dr = -1; dr <= 1; dr++)
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nr = r + dr, nc = c + dc;
+          if (nr < 0 || nc < 0 || nr >= SIZE || nc >= SIZE) continue;
+          if (isClueCell(nr, nc)) continue;
+          if (state[nr][nc] === 1) b++;
+          else if (state[nr][nc] === 0) o++;
+        }
+      if (b === want && o === 0) out.add(`clue(${cellLabel(r, c)})`);
+    }
+    return out;
+  }
+
   function buildAnalysis() {
     const sz = SIZE;
     const empty = () => Array.from({ length: sz }, () => Array(sz).fill(0));
@@ -938,7 +1056,8 @@ EEEFFF
     // 'good' if every touched cell's final value equals solution value.
     s = empty(); stack.length = 0;
     const classifyClickAction = (a) => {
-      const touched = new Map(); // "r,c" -> value after the action
+      const satBefore = computeSatisfied(s);
+      const touched = new Map();
       for (const idx of a.indices) {
         const e = moveLog[idx];
         stack.push(s.map(r => r.slice()));
@@ -950,13 +1069,15 @@ EEEFFF
         const [r, c] = key.split(",").map(Number);
         if (finalState[r][c] !== v) { allGood = false; break; }
       }
-      return { label: allGood ? "good" : "trial", touched };
+      const satAfter = computeSatisfied(s);
+      const newlySat = [...satAfter].filter(x => !satBefore.has(x));
+      return { label: allGood ? "good" : "trial", touched, newlySat };
     };
     const actionInfo = [];
     for (const a of actions) {
       if (a.type === "click") {
         const info = classifyClickAction(a);
-        actionInfo.push({ ...a, label: info.label, touched: info.touched });
+        actionInfo.push({ ...a, label: info.label, touched: info.touched, newlySat: info.newlySat });
       } else if (a.type === "undo") {
         if (stack.length) s = stack.pop();
         actionInfo.push({ ...a, label: "undo" });
@@ -983,7 +1104,7 @@ EEEFFF
         const clickCount = a.indices.length;
         const kind = cellCount > 1 ? "swipe" : (clickCount > 1 ? "cycle" : "tap");
         const lastEvent = moveLog[a.indices[a.indices.length - 1]];
-        out.push({ t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap });
+        out.push({ t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap, newlySat: a.newlySat || [] });
         lastGoodT = lastEvent.t;
         resetTrial();
       } else if (a.label === "trial") {
@@ -1039,9 +1160,9 @@ EEEFFF
       }
       let suffix = "";
       if (m.kind === "swipe") suffix = ` (swipe × ${m.cells})`;
-      // cycle and tap: no suffix — ×→berry is treated as one move
       div.className = g.kind === "trial" ? "trial" : "good";
       let body = gapText ? `✓ ${at}${suffix} — ${gapText}` : `✓ ${at}${suffix}`;
+      if (m.newlySat && m.newlySat.length) body += ` → ${m.newlySat.join(", ")}`;
       div.textContent = body;
       el.appendChild(div);
     }

@@ -1,1 +1,1 @@
-{"sha":"748b7a1","fullSha":"748b7a1107c08d4b794831612b6e77ad15fdc31b","built":"2026-04-24T04:47:20Z","message":"Reset only clears the board, keeps history/moveLog/undoCount"}
+{"sha":"11bf0b9","fullSha":"11bf0b9f7444d8a2834650f9ef118aa1a3203855","built":"2026-04-24T04:51:37Z","message":"Log every interaction (click/undo/reset/solve/switch/hide/show) + add export"}

@@ -851,20 +851,37 @@ EEEFFF
     // Replay clicks/undo/reset against the puzzle to get the final solved state.
     const sz = SIZE;
     const empty = () => Array.from({ length: sz }, () => Array(sz).fill(0));
+    const MISCLICK_MS = 2000;
     let s = empty();
     const stack = [];
+    // snapshots[i] is the state *after* moveLog[i]; snapshots[i].t === moveLog[i].t.
+    const snapshots = [];
     for (const e of moveLog) {
       if (e.type === "click") { stack.push(s.map(r => r.slice())); s[e.r][e.c] = e.to; }
       else if (e.type === "undo") { if (stack.length) s = stack.pop(); }
       else if (e.type === "reset") { stack.push(s.map(r => r.slice())); s = empty(); }
-      else if (e.type === "solve") break;
+      snapshots.push({ t: e.t, state: s.map(r => r.slice()) });
+      if (e.type === "solve") break;
     }
     const finalState = s;
 
-    // Replay again; classify each click as 'good' if its value persists in finalState.
+    // A click is a 'misclick' if the same cell returns to its pre-click value
+    // within MISCLICK_MS (via undo, a cycle of clicks, or a reset).
+    const misclick = new Array(moveLog.length).fill(false);
+    for (let i = 0; i < moveLog.length; i++) {
+      const e = moveLog[i];
+      if (e.type !== "click") continue;
+      for (let j = i + 1; j < snapshots.length; j++) {
+        if (snapshots[j].t - e.t > MISCLICK_MS) break;
+        if (snapshots[j].state[e.r][e.c] === e.from) { misclick[i] = true; break; }
+      }
+    }
+
+    // Classify each click against the final state.
     s = empty(); stack.length = 0;
     const labels = [];
-    for (const e of moveLog) {
+    for (let i = 0; i < moveLog.length; i++) {
+      const e = moveLog[i];
       if (e.type === "click") {
         stack.push(s.map(r => r.slice()));
         s[e.r][e.c] = e.to;
@@ -880,14 +897,12 @@ EEEFFF
       }
     }
 
-    // Walk labels and produce one entry per 'good' move. Each entry also
-    // describes the gap since the previous good move (either pure thinking
-    // or a trial run with its own counters).
+    // One entry per 'good' move with the preceding gap.
     const out = [];
     let lastGoodT = 0;
     let trialStart = null;
-    let trialCounts = { clicks: 0, undos: 0, resets: 0 };
-    const resetTrial = () => { trialStart = null; trialCounts = { clicks: 0, undos: 0, resets: 0 }; };
+    let trialCounts = { clicks: 0, undos: 0, resets: 0, misclicks: 0 };
+    const resetTrial = () => { trialStart = null; trialCounts = { clicks: 0, undos: 0, resets: 0, misclicks: 0 }; };
     for (let i = 0; i < moveLog.length; i++) {
       const e = moveLog[i], lbl = labels[i];
       if (lbl === "good") {
@@ -897,13 +912,15 @@ EEEFFF
         } else {
           gap = { kind: "thinking", dur: e.t - lastGoodT };
         }
-        out.push({ t: e.t, r: e.r, c: e.c, to: e.to, gap });
+        out.push({ t: e.t, r: e.r, c: e.c, to: e.to, misclick: misclick[i], gap });
         lastGoodT = e.t;
         resetTrial();
       } else if (lbl === "trial" || lbl === "undo" || lbl === "reset") {
         if (trialStart === null) trialStart = e.t;
-        if (lbl === "trial") trialCounts.clicks++;
-        else if (lbl === "undo") trialCounts.undos++;
+        if (lbl === "trial") {
+          trialCounts.clicks++;
+          if (misclick[i]) trialCounts.misclicks++;
+        } else if (lbl === "undo") trialCounts.undos++;
         else trialCounts.resets++;
       }
     }
@@ -919,7 +936,6 @@ EEEFFF
     if (!moves.length) return;
     for (const m of moves) {
       const div = document.createElement("div");
-      div.className = "good";
       const at = formatTime(m.t);
       const g = m.gap;
       let gapText;
@@ -928,12 +944,15 @@ EEEFFF
       } else {
         const parts = [];
         if (g.clicks) parts.push(`${g.clicks} ruch${g.clicks === 1 ? "" : "ów"}`);
+        if (g.misclicks) parts.push(`${g.misclicks} pomyłk${g.misclicks === 1 ? "a" : (g.misclicks < 5 ? "i" : "")}`);
         if (g.undos) parts.push(`${g.undos} undo`);
         if (g.resets) parts.push(`${g.resets} reset`);
         gapText = `próba ${formatTime(g.dur)} (${parts.join(", ")})`;
       }
-      div.textContent = gapText ? `✓ ${at} — ${gapText}` : `✓ ${at}`;
-      if (g.kind === "trial") div.className = "trial";
+      div.className = g.kind === "trial" ? "trial" : "good";
+      let body = gapText ? `✓ ${at} — ${gapText}` : `✓ ${at}`;
+      if (m.misclick) body += " · pomyłka";
+      div.textContent = body;
       el.appendChild(div);
     }
   }

@@ -104,8 +104,13 @@
     button:hover { background: #efe9dc; }
   }
   button:disabled { opacity: 0.4; cursor: default; }
-  .status { font-size: 13px; color: var(--muted); min-height: 1.2em; }
-  .status.win { color: var(--good); font-weight: 600; }
+  .status {
+    font-size: 13px; color: var(--muted);
+    min-height: 1.2em; margin-top: 14px;
+    text-align: center;
+  }
+  .status:empty { margin-top: 0; min-height: 0; }
+  .status.win { color: var(--good); font-weight: 600; font-size: 15px; }
 
   .build-info {
     position: fixed; bottom: 6px; right: 8px;

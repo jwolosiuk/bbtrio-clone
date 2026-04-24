@@ -1,0 +1,26 @@
+name: probe-now
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-now.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          UA="Mozilla/5.0 bbtrio-clone-probe"
+          mkdir -p .probe
+          curl -sSL -A "$UA" -D .probe/now.headers -o .probe/now-puzzles.js \
+            "https://circle9puzzle.com/bbtrio/bbtrio.puzzles.js"
+          md5sum .probe/now-puzzles.js
+          wc -c .probe/now-puzzles.js
+          date -u
+          head -5 .probe/now.headers
+          git config user.name "probe-bot"; git config user.email "probe@noreply"
+          git add .probe/
+          git diff --cached --quiet && echo "identical" || (git commit -m "probe: now.js [skip stamp]" && git push)

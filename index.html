@@ -111,6 +111,15 @@
   }
   .status:empty { margin-top: 0; min-height: 0; }
   .status.win { color: var(--good); font-weight: 600; font-size: 15px; }
+  .analysis {
+    margin-top: 10px; max-width: 32em;
+    font-size: 12px; color: var(--ink); opacity: 0.85;
+    font-family: ui-monospace, monospace;
+    line-height: 1.55;
+  }
+  .analysis div { padding: 1px 0; }
+  .analysis .good { color: var(--good); }
+  .analysis .trial { color: var(--bad); }
 
   .build-info {
     position: fixed; bottom: 6px; right: 8px;
@@ -167,6 +176,7 @@
     <button id="reset" type="button">Reset</button>
   </div>
   <div id="status" class="status" role="status" aria-live="polite"></div>
+  <div id="analysis" class="analysis"></div>
   <p class="legend">Click to mark <kbd>×</kbd>. <kbd>Click</kbd> again for a berry. Once more to clear.</p>
   <div id="build-info" class="build-info"></div>
 
@@ -535,6 +545,8 @@ EEEFFF
       }
     }
     setStatus("");
+    const aEl = document.getElementById("analysis");
+    if (aEl) aEl.innerHTML = "";
     render();
     startTicking();
     renderTimer();
@@ -726,6 +738,7 @@ EEEFFF
     if (label) parts.push(label);
     if (undoCount > 0) parts.push(`${undoCount} undo`);
     setStatus(parts.join(" · "), true);
+    renderAnalysis();
   }
 
   function renderUndoCount() {
@@ -832,6 +845,89 @@ EEEFFF
     statusEl.textContent = text;
     statusEl.classList.toggle("win", !!win);
     statusEl.style.color = bad ? "var(--bad)" : "";
+  }
+
+  function buildAnalysis() {
+    // Replay clicks/undo/reset against the puzzle to get the final solved state.
+    const sz = SIZE;
+    const empty = () => Array.from({ length: sz }, () => Array(sz).fill(0));
+    let s = empty();
+    const stack = [];
+    for (const e of moveLog) {
+      if (e.type === "click") { stack.push(s.map(r => r.slice())); s[e.r][e.c] = e.to; }
+      else if (e.type === "undo") { if (stack.length) s = stack.pop(); }
+      else if (e.type === "reset") { stack.push(s.map(r => r.slice())); s = empty(); }
+      else if (e.type === "solve") break;
+    }
+    const finalState = s;
+
+    // Replay again; classify each click as 'good' if its value persists in finalState.
+    s = empty(); stack.length = 0;
+    const labels = [];
+    for (const e of moveLog) {
+      if (e.type === "click") {
+        stack.push(s.map(r => r.slice()));
+        s[e.r][e.c] = e.to;
+        labels.push(finalState[e.r][e.c] === e.to ? "good" : "trial");
+      } else if (e.type === "undo") {
+        if (stack.length) s = stack.pop();
+        labels.push("undo");
+      } else if (e.type === "reset") {
+        stack.push(s.map(r => r.slice())); s = empty();
+        labels.push("reset");
+      } else {
+        labels.push("system");
+      }
+    }
+
+    // Bucket consecutive events into 'good_run' (good clicks only) or 'trial_run'
+    // (any non-good action with at least one click).
+    const out = [];
+    let cur = null;
+    const flush = () => { if (cur && (cur.type === "good_run" ? cur.count > 0 : cur.clicks > 0)) out.push(cur); cur = null; };
+    for (let i = 0; i < moveLog.length; i++) {
+      const e = moveLog[i], lbl = labels[i];
+      if (lbl === "good") {
+        if (!cur || cur.type !== "good_run") { flush(); cur = { type: "good_run", startT: e.t, endT: e.t, count: 0 }; }
+        cur.count++; cur.endT = e.t;
+      } else if (lbl === "trial" || lbl === "undo" || lbl === "reset") {
+        if (!cur || cur.type !== "trial_run") { flush(); cur = { type: "trial_run", startT: e.t, endT: e.t, clicks: 0, undos: 0, resets: 0 }; }
+        if (lbl === "trial") cur.clicks++;
+        else if (lbl === "undo") cur.undos++;
+        else cur.resets++;
+        cur.endT = e.t;
+      }
+    }
+    flush();
+    return out;
+  }
+
+  function renderAnalysis() {
+    const el = document.getElementById("analysis");
+    if (!el) return;
+    el.innerHTML = "";
+    if (!finishedAt) return;
+    const chunks = buildAnalysis();
+    if (!chunks.length) return;
+    for (const m of chunks) {
+      const div = document.createElement("div");
+      const at = formatTime(m.startT);
+      if (m.type === "good_run") {
+        const dur = m.endT - m.startT;
+        div.className = "good";
+        div.textContent = m.count === 1
+          ? `✓ ${at} — dobry ruch`
+          : `✓ ${at} — ${m.count} dobrych ruchów (${formatTime(dur)})`;
+      } else {
+        const dur = m.endT - m.startT;
+        const parts = [`${m.clicks} ruch${m.clicks === 1 ? "" : "ów"}`];
+        if (m.undos) parts.push(`${m.undos} undo`);
+        if (m.resets) parts.push(`${m.resets} reset`);
+        div.className = "trial";
+        div.textContent = `✗ ${at} — próba ${formatTime(dur)} (${parts.join(", ")})`;
+      }
+      el.appendChild(div);
+    }
   }
 
   const COMPLETED_KEY = () => `${STORE_PREFIX}${todayKey()}:completed`;

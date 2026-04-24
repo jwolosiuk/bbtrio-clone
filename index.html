@@ -991,7 +991,7 @@ EEEFFF
           if (state[nr][nc] === 1) b++;
           else if (state[nr][nc] === 0) o++;
         }
-      if (b === want && o === 0) out.add(`clue(${cellLabel(r, c)})`);
+      if (b === want && o === 0) out.add(`clue(${cellLabel(r, c)}=${want})`);
     }
     return out;
   }

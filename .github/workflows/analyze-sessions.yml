@@ -1,0 +1,32 @@
+name: analyze-sessions
+on:
+  workflow_dispatch:
+    inputs:
+      device_id:
+        description: 'device_id (full UUID, copy from app footer)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run analyzer
+        id: analyze
+        run: |
+          mkdir -p analysis
+          STAMP=$(date -u +%Y%m%d-%H%M%S)
+          OUT="analysis/${{ inputs.device_id }}-$STAMP.txt"
+          python3 tools/analyze_session.py --device "${{ inputs.device_id }}" > "$OUT" 2>&1 || true
+          echo "out=$OUT" >> $GITHUB_OUTPUT
+          echo "----- analysis preview -----"
+          head -200 "$OUT"
+      - name: Commit analysis
+        run: |
+          git config user.name "analysis-bot"
+          git config user.email "analysis@users.noreply.github.com"
+          git add analysis/
+          git diff --cached --quiet && echo "no changes" || (git commit -m "Analyze sessions for device ${{ inputs.device_id }} [skip stamp]" && git push)

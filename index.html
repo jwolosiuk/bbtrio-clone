@@ -1331,6 +1331,16 @@ EEEFFF
     sync.title = "Save session JSON to GitHub repo";
     sync.addEventListener("click", (e) => { e.preventDefault(); syncToSupabase(sync); });
     el.appendChild(sync);
+    const did = getDeviceId();
+    const idSpan = document.createElement("span");
+    idSpan.style.marginLeft = "8px";
+    idSpan.title = "Device ID — click to copy";
+    idSpan.textContent = `id:${did.slice(0, 8)}`;
+    idSpan.style.cursor = "pointer";
+    idSpan.addEventListener("click", () => {
+      try { navigator.clipboard.writeText(did); idSpan.textContent = "copied!"; setTimeout(() => { idSpan.textContent = `id:${did.slice(0, 8)}`; }, 1200); } catch {}
+    });
+    el.appendChild(idSpan);
     try {
       const res = await fetch("version.json", { cache: "no-store" });
       if (!res.ok) return;

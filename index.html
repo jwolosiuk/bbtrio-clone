@@ -1351,18 +1351,15 @@ EEEFFF
       const fmtChain = (f) => f.kind === "intersect"
         ? f.labels.join(" × ") + " [intersect]"
         : f.labels.join(" → ");
-      const viaLabels = new Set();
       if (m.forcing && m.forcing.length) {
         const chains = m.forcing.filter(f => f.size != null);
         if (chains.length === 0) body += " · via deeper reasoning";
         else {
           const uniq = [...new Set(chains.map(fmtChain))];
           body += " · via " + uniq.join(" | ");
-          for (const f of chains) for (const l of f.labels) viaLabels.add(l);
         }
       }
-      const newlyOnly = (m.newlySat || []).filter(l => !viaLabels.has(l));
-      if (newlyOnly.length) body += ` · zamyka ${newlyOnly.join(", ")}`;
+      if (m.newlySat && m.newlySat.length) body += ` · zamyka ${m.newlySat.join(", ")}`;
       div.textContent = body;
       el.appendChild(div);
     }

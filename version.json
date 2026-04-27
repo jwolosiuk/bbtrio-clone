@@ -1,1 +1,1 @@
-{"sha":"f818f8f","fullSha":"f818f8f64343c3ed26eb0120819fd395dad76bdc","built":"2026-04-27T06:27:41Z","message":"Show device_id in footer + analyze-sessions workflow"}
+{"sha":"7494dea","fullSha":"7494deacad8bf43bcf79cddefb349ae143b99590","built":"2026-04-27T06:29:33Z","message":"Drop analyze-sessions workflow; analysis stays out of git"}

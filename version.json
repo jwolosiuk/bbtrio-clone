@@ -1,1 +1,1 @@
-{"sha":"e6eda1c","fullSha":"e6eda1c723acb93cf8250d7e6a10104cdf4ce0c9","built":"2026-04-27T06:32:31Z","message":"Add allConstraints / applyConstraintOnce / classifyMoveConstraints helpers"}
+{"sha":"6f61db8","fullSha":"6f61db8eb6b0b0884dd8cd42bc59c91f6b188f30","built":"2026-04-27T06:38:14Z","message":"Show 'forced via X (chain)' on each good move in the Log panel"}

@@ -787,6 +787,8 @@ EEEFFF
       renderTimer();
       renderTabs();
     updateLogButtonVis();
+      // Best-effort auto-sync if the user has set up a GitHub PAT.
+      if (localStorage.getItem(GH_TOKEN_KEY)) syncToGithub(null);
     }
     const label = difficultyLabel();
     const parts = ["Solved!"];
@@ -1322,6 +1324,13 @@ EEEFFF
     dl.textContent = "⬇ log";
     dl.addEventListener("click", (e) => { e.preventDefault(); downloadLog(); });
     el.appendChild(dl);
+    const sync = document.createElement("a");
+    sync.href = "#";
+    sync.className = "dl";
+    sync.textContent = "↑ sync";
+    sync.title = "Save session JSON to GitHub repo";
+    sync.addEventListener("click", (e) => { e.preventDefault(); syncToGithub(sync); });
+    el.appendChild(sync);
     try {
       const res = await fetch("version.json", { cache: "no-store" });
       if (!res.ok) return;
@@ -1332,6 +1341,68 @@ EEEFFF
       span.innerHTML = `<a href="${repo}/commit/${v.fullSha || v.sha}" target="_blank" rel="noopener">${v.sha || ""}</a> · ${built}`;
       el.appendChild(span);
     } catch {}
+  }
+  function buildSnapshot() {
+    pauseTimer();
+    saveStore();
+    resumeTimer();
+    const today = todayKey();
+    const snapshot = {
+      date: today,
+      currentCategory,
+      completed: loadCompleted(),
+      categories: {},
+    };
+    for (const cat of CATEGORIES) snapshot.categories[cat] = loadStore(cat);
+    return { today, snapshot };
+  }
+  const GH_REPO = "jwolosiuk/bbtrio-clone";
+  const GH_TOKEN_KEY = "bbtrio:gh-token";
+  async function syncToGithub(linkEl) {
+    let token = localStorage.getItem(GH_TOKEN_KEY);
+    if (!token) {
+      token = window.prompt(
+        "Wklej GitHub fine-grained PAT z uprawnieniem 'Contents: Read and Write' " +
+        "dla repo " + GH_REPO + ".\n\nUtwórz: https://github.com/settings/personal-access-tokens/new"
+      );
+      if (!token) return;
+      token = token.trim();
+      localStorage.setItem(GH_TOKEN_KEY, token);
+    }
+    const { today, snapshot } = buildSnapshot();
+    const now = new Date();
+    const stamp = `${String(now.getHours()).padStart(2, "0")}-${String(now.getMinutes()).padStart(2, "0")}-${String(now.getSeconds()).padStart(2, "0")}`;
+    const path = `sessions/${today}/${stamp}-${currentCategory.toLowerCase()}.json`;
+    const body = JSON.stringify(snapshot, null, 2);
+    const content = btoa(unescape(encodeURIComponent(body)));
+    if (linkEl) { linkEl.textContent = "↑ ..."; }
+    try {
+      const res = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${path}`, {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Accept": "application/vnd.github+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: `Session ${today} ${stamp} ${currentCategory}`, content }),
+      });
+      if (res.ok) {
+        if (linkEl) { linkEl.textContent = "✓ saved"; setTimeout(() => { linkEl.textContent = "↑ sync"; }, 1500); }
+        return true;
+      }
+      if (res.status === 401) {
+        localStorage.removeItem(GH_TOKEN_KEY);
+        alert("Token odrzucony — kliknij ↑ sync ponownie i wklej nowy.");
+      } else {
+        const err = await res.text();
+        alert(`Sync failed: ${res.status}\n${err.slice(0, 300)}`);
+      }
+    } catch (err) {
+      alert(`Sync error: ${err.message}`);
+    } finally {
+      if (linkEl && linkEl.textContent === "↑ ...") linkEl.textContent = "↑ sync";
+    }
+    return false;
   }
   function downloadLog() {
     pauseTimer();

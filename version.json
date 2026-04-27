@@ -1,1 +1,1 @@
-{"sha":"0238831","fullSha":"0238831b9736a81de93b06986a68fe2d55c70345","built":"2026-04-27T07:24:28Z","message":"Suppress 'zamyka X' when X is already in the via labels"}
+{"sha":"7c1a69e","fullSha":"7c1a69e6d5ead24a7be2005e616a223f55613117","built":"2026-04-27T07:47:04Z","message":"Always show 'zamyka X' even when X was the forcing constraint"}

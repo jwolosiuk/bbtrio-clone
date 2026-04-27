@@ -1346,28 +1346,20 @@ EEEFFF
       if (m.kind === "swipe") suffix = ` (swipe × ${m.cells})`;
       div.className = g.kind === "trial" ? "trial" : "good";
       let body = gapText ? `✓ ${at}${suffix} — ${gapText}` : `✓ ${at}${suffix}`;
-      // 'forced via': how each touched cell was derived
+      // 'forced via': how each touched cell was derived. The connector itself
+      // tells the kind: ' ∩ ' = intersection, ' → ' = chain, single = one label.
       const fmtChain = (f) => f.kind === "intersect"
-        ? `intersect ${f.labels.join(" ∩ ")}`
+        ? f.labels.join(" × ") + " [intersect]"
         : f.labels.join(" → ");
       if (m.forcing && m.forcing.length) {
         const chains = m.forcing.filter(f => f.size != null);
         if (chains.length === 0) body += " · via deeper reasoning";
-        else if (m.forcing.length === 1) body += " · via " + fmtChain(chains[0]);
         else {
-          const allLabels = new Set();
-          let maxSize = 0;
-          let anyIntersect = false;
-          for (const f of chains) {
-            f.labels.forEach(l => allLabels.add(l));
-            if (f.size > maxSize) maxSize = f.size;
-            if (f.kind === "intersect") anyIntersect = true;
-          }
-          const tag = anyIntersect ? "intersect" : `chain ${maxSize}`;
-          body += ` · via ${[...allLabels].slice(0, 4).join(", ")}${allLabels.size > 4 ? "..." : ""} (${tag})`;
+          const uniq = [...new Set(chains.map(fmtChain))];
+          body += " · via " + uniq.join(" | ");
         }
       }
-      if (m.newlySat && m.newlySat.length) body += ` → ${m.newlySat.join(", ")}`;
+      if (m.newlySat && m.newlySat.length) body += ` · zamyka ${m.newlySat.join(", ")}`;
       div.textContent = body;
       el.appendChild(div);
     }

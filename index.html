@@ -1166,8 +1166,10 @@ EEEFFF
     // the action ends with some value; compare to the solution. Action is
     // 'good' if every touched cell's final value equals solution value.
     s = empty(); stack.length = 0;
+    const constraintList = allConstraints();
     const classifyClickAction = (a) => {
       const satBefore = computeSatisfied(s);
+      const stateBefore = s.map(row => row.slice());
       const touched = new Map();
       for (const idx of a.indices) {
         const e = moveLog[idx];
@@ -1182,13 +1184,23 @@ EEEFFF
       }
       const satAfter = computeSatisfied(s);
       const newlySat = [...satAfter].filter(x => !satBefore.has(x));
-      return { label: allGood ? "good" : "trial", touched, newlySat };
+      // Per-cell forcing classification (only meaningful for good actions —
+      // skip otherwise to keep the cost down).
+      let forcing = null;
+      if (allGood) {
+        forcing = [];
+        for (const [key, v] of touched) {
+          const [r, c] = key.split(",").map(Number);
+          forcing.push({ r, c, v, ...classifyMoveConstraints(stateBefore, r, c, v, constraintList) });
+        }
+      }
+      return { label: allGood ? "good" : "trial", touched, newlySat, forcing };
     };
     const actionInfo = [];
     for (const a of actions) {
       if (a.type === "click") {
         const info = classifyClickAction(a);
-        actionInfo.push({ ...a, label: info.label, touched: info.touched, newlySat: info.newlySat });
+        actionInfo.push({ ...a, label: info.label, touched: info.touched, newlySat: info.newlySat, forcing: info.forcing });
       } else if (a.type === "undo") {
         if (stack.length) s = stack.pop();
         actionInfo.push({ ...a, label: "undo" });
@@ -1215,7 +1227,7 @@ EEEFFF
         const clickCount = a.indices.length;
         const kind = cellCount > 1 ? "swipe" : (clickCount > 1 ? "cycle" : "tap");
         const lastEvent = moveLog[a.indices[a.indices.length - 1]];
-        out.push({ t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap, newlySat: a.newlySat || [] });
+        out.push({ t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap, newlySat: a.newlySat || [], forcing: a.forcing || [] });
         lastGoodT = lastEvent.t;
         resetTrial();
       } else if (a.label === "trial") {
@@ -1273,6 +1285,22 @@ EEEFFF
       if (m.kind === "swipe") suffix = ` (swipe × ${m.cells})`;
       div.className = g.kind === "trial" ? "trial" : "good";
       let body = gapText ? `✓ ${at}${suffix} — ${gapText}` : `✓ ${at}${suffix}`;
+      // 'forced via': summarize the constraint chain(s) that derived the move(s)
+      if (m.forcing && m.forcing.length) {
+        // For single-cell moves, show the chain directly. For swipe (multi-
+        // cell), show the union of chain labels with the deepest size.
+        const chains = m.forcing.filter(f => f.size != null);
+        if (chains.length === 0) body += " · via deeper reasoning";
+        else if (m.forcing.length === 1) {
+          const f = chains[0];
+          body += " · via " + f.labels.join(" → ");
+        } else {
+          const allLabels = new Set();
+          let maxSize = 0;
+          for (const f of chains) { f.labels.forEach(l => allLabels.add(l)); if (f.size > maxSize) maxSize = f.size; }
+          body += ` · via ${[...allLabels].slice(0, 4).join(", ")}${allLabels.size > 4 ? "..." : ""} (max chain ${maxSize})`;
+        }
+      }
       if (m.newlySat && m.newlySat.length) body += ` → ${m.newlySat.join(", ")}`;
       div.textContent = body;
       el.appendChild(div);

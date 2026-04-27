@@ -1,1 +1,1 @@
-{"sha":"0ceb204","fullSha":"0ceb2042232bea64c10dc672e84c258b8e75805b","built":"2026-04-27T05:46:29Z","message":"Bake Supabase URL + anon key into config.json (no per-device prompt)"}
+{"sha":"0e3e3a5","fullSha":"0e3e3a5ea27798d1df133e75a8bbfd102bb11ee4","built":"2026-04-27T06:05:32Z","message":"Wire config.json to user's Supabase project"}

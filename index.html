@@ -1007,6 +1007,106 @@ EEEFFF
     return out;
   }
 
+  // Enumerate every constraint as (label, [cells], target). Used by the
+  // per-move 'how was this forced?' classifier.
+  function allConstraints() {
+    const out = [];
+    for (let r = 0; r < SIZE; r++) {
+      const cells = [];
+      for (let c = 0; c < SIZE; c++) if (!isClueCell(r, c)) cells.push([r, c]);
+      out.push({ label: `row(${rowLabel(r)})`, cells, target: PER });
+    }
+    for (let c = 0; c < SIZE; c++) {
+      const cells = [];
+      for (let r = 0; r < SIZE; r++) if (!isClueCell(r, c)) cells.push([r, c]);
+      out.push({ label: `col(${colLabel(c)})`, cells, target: PER });
+    }
+    const bids = new Set();
+    for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) bids.add(groupOf[r][c]);
+    for (const bid of bids) {
+      const cells = [];
+      for (let r = 0; r < SIZE; r++)
+        for (let c = 0; c < SIZE; c++)
+          if (groupOf[r][c] === bid && !isClueCell(r, c)) cells.push([r, c]);
+      out.push({ label: blockLabel(bid), cells, target: PER });
+    }
+    for (const key in clues) {
+      const [cr, cc] = key.split(",").map(Number);
+      const ns = [];
+      for (let dr = -1; dr <= 1; dr++)
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nr = cr + dr, nc = cc + dc;
+          if (nr < 0 || nc < 0 || nr >= SIZE || nc >= SIZE) continue;
+          if (isClueCell(nr, nc)) continue;
+          ns.push([nr, nc]);
+        }
+      out.push({ label: `clue(${cellLabel(cr, cc)}=${clues[key]})`, cells: ns, target: clues[key] });
+    }
+    return out;
+  }
+  // One pass of the standard 'fill open cells with berries or marks if forced'
+  // rule on a single constraint. Mutates state. Returns true if it changed.
+  function applyConstraintOnce(state, cells, target) {
+    let berries = 0; const opens = [];
+    for (const [r, c] of cells) {
+      if (state[r][c] === 1) berries++;
+      else if (state[r][c] === 0) opens.push([r, c]);
+    }
+    const need = target - berries;
+    if (need < 0 || need > opens.length || opens.length === 0) return false;
+    if (need === 0) { for (const [r, c] of opens) state[r][c] = 2; return true; }
+    if (need === opens.length) { for (const [r, c] of opens) state[r][c] = 1; return true; }
+    return false;
+  }
+  // Find the smallest chain of constraints whose sequential application
+  // forces (r,c) → targetV starting from stateBefore. Returns {size, labels}
+  // or {size: null} if no chain of length ≤ 3 works.
+  function classifyMoveConstraints(stateBefore, r, c, targetV, constraints) {
+    // single
+    for (const k of constraints) {
+      const s2 = stateBefore.map(row => row.slice());
+      if (applyConstraintOnce(s2, k.cells, k.target) && s2[r][c] === targetV) {
+        return { size: 1, labels: [k.label] };
+      }
+    }
+    // pair: A then B
+    for (const a of constraints) {
+      const sA = stateBefore.map(row => row.slice());
+      if (!applyConstraintOnce(sA, a.cells, a.target)) continue;
+      if (sA[r][c] === targetV) continue; // single A would have caught it
+      for (const b of constraints) {
+        if (b.label === a.label) continue;
+        if (!b.cells.some(([rr, cc]) => rr === r && cc === c)) continue;
+        const sB = sA.map(row => row.slice());
+        if (applyConstraintOnce(sB, b.cells, b.target) && sB[r][c] === targetV) {
+          return { size: 2, labels: [a.label, b.label] };
+        }
+      }
+    }
+    // triple
+    for (const a of constraints) {
+      const sA = stateBefore.map(row => row.slice());
+      if (!applyConstraintOnce(sA, a.cells, a.target)) continue;
+      if (sA[r][c] === targetV) continue;
+      for (const b of constraints) {
+        if (b.label === a.label) continue;
+        const sB = sA.map(row => row.slice());
+        if (!applyConstraintOnce(sB, b.cells, b.target)) continue;
+        if (sB[r][c] === targetV) continue;
+        for (const c3 of constraints) {
+          if (c3.label === a.label || c3.label === b.label) continue;
+          if (!c3.cells.some(([rr, cc]) => rr === r && cc === c)) continue;
+          const sC = sB.map(row => row.slice());
+          if (applyConstraintOnce(sC, c3.cells, c3.target) && sC[r][c] === targetV) {
+            return { size: 3, labels: [a.label, b.label, c3.label] };
+          }
+        }
+      }
+    }
+    return { size: null, labels: [] };
+  }
+
   function buildAnalysis() {
     const sz = SIZE;
     const empty = () => Array.from({ length: sz }, () => Array(sz).fill(0));

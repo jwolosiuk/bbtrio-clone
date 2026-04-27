@@ -1352,12 +1352,13 @@ EEEFFF
         ? f.labels.join(" × ") + " [intersect]"
         : f.labels.join(" → ");
       if (m.forcing && m.forcing.length) {
-        const chains = m.forcing.filter(f => f.size != null);
-        if (chains.length === 0) body += " · via deeper reasoning";
-        else {
-          const uniq = [...new Set(chains.map(fmtChain))];
-          body += " · via " + uniq.join(" | ");
-        }
+        // Collect distinct reasonings across all touched cells. 'deeper' is
+        // included as its own bucket so a swipe where only some cells were
+        // forced doesn't pretend the whole action was via the named rule.
+        const chainStrs = m.forcing.map(f => f.size != null ? fmtChain(f) : "deeper");
+        const uniq = [...new Set(chainStrs)];
+        if (uniq.length === 1 && uniq[0] === "deeper") body += " · via deeper reasoning";
+        else body += " · via " + uniq.join(" | ");
       }
       if (m.newlySat && m.newlySat.length) body += ` · zamyka ${m.newlySat.join(", ")}`;
       div.textContent = body;

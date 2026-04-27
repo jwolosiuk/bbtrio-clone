@@ -1059,6 +1059,56 @@ EEEFFF
     if (need === opens.length) { for (const [r, c] of opens) state[r][c] = 1; return true; }
     return false;
   }
+  // Cardinality-difference rule (a.k.a. clue-pair forcing for two clue cells,
+  // generalised to any pair of constraints with overlapping cell sets).
+  //
+  // Two constraints A=Vₐ and B=Vᵦ partition their cells into A_only, common,
+  // B_only. With x, y, z = berries added in each region and bounds [0, openX]:
+  //     x + y = Vₐ - already_in_A
+  //     y + z = Vᵦ - already_in_B
+  // Whenever the bounds collapse one of x/y/z to an extremum, the
+  // corresponding region's open cells are all forced to berry or all to ×.
+  function applyIntersectionRule(state, A, B) {
+    const keyOf = ([r, c]) => `${r},${c}`;
+    const setA = new Set(A.cells.map(keyOf));
+    const setB = new Set(B.cells.map(keyOf));
+    const common = []; const aOnly = []; const bOnly = [];
+    for (const cell of A.cells) (setB.has(keyOf(cell)) ? common : aOnly).push(cell);
+    for (const cell of B.cells) if (!setA.has(keyOf(cell))) bOnly.push(cell);
+    if (common.length === 0) return null;
+    const tally = (cells) => {
+      let b = 0, o = 0;
+      for (const [r, c] of cells) {
+        if (state[r][c] === 1) b++;
+        else if (state[r][c] === 0) o++;
+      }
+      return { b, o };
+    };
+    const ta = tally(aOnly), tc = tally(common), tb = tally(bOnly);
+    const need1 = A.target - ta.b - tc.b;
+    const need2 = B.target - tc.b - tb.b;
+    if (need1 < 0 || need2 < 0) return null;
+    if (need1 > ta.o + tc.o || need2 > tc.o + tb.o) return null;
+    // Valid y (= berries to add in common) range
+    const yMin = Math.max(0, need1 - ta.o, need2 - tb.o);
+    const yMax = Math.min(tc.o, need1, need2);
+    if (yMin > yMax) return null;
+    const xMin = need1 - yMax, xMax = need1 - yMin;
+    const zMin = need2 - yMax, zMax = need2 - yMin;
+    const forced = []; // list of {r, c, v}
+    const fillAll = (cells, v) => {
+      for (const [r, c] of cells) if (state[r][c] === 0) forced.push({ r, c, v });
+    };
+    if (xMin === ta.o && ta.o > 0) fillAll(aOnly, 1);
+    else if (xMax === 0 && ta.o > 0) fillAll(aOnly, 2);
+    if (zMin === tb.o && tb.o > 0) fillAll(bOnly, 1);
+    else if (zMax === 0 && tb.o > 0) fillAll(bOnly, 2);
+    if (yMin === yMax && tc.o > 0) {
+      if (yMin === tc.o) fillAll(common, 1);
+      else if (yMin === 0) fillAll(common, 2);
+    }
+    return forced.length > 0 ? forced : null;
+  }
   // Find the smallest chain of constraints whose sequential application
   // forces (r,c) → targetV starting from stateBefore. Returns {size, labels}
   // or {size: null} if no chain of length ≤ 3 works.
@@ -1068,6 +1118,17 @@ EEEFFF
       const s2 = stateBefore.map(row => row.slice());
       if (applyConstraintOnce(s2, k.cells, k.target) && s2[r][c] === targetV) {
         return { size: 1, labels: [k.label] };
+      }
+    }
+    // intersection of two constraints (cardinality difference rule)
+    for (let i = 0; i < constraints.length; i++) {
+      for (let j = i + 1; j < constraints.length; j++) {
+        const A = constraints[i], B = constraints[j];
+        const forced = applyIntersectionRule(stateBefore, A, B);
+        if (!forced) continue;
+        if (forced.some(f => f.r === r && f.c === c && f.v === targetV)) {
+          return { size: 2, kind: "intersect", labels: [A.label, B.label] };
+        }
       }
     }
     // pair: A then B
@@ -1285,20 +1346,25 @@ EEEFFF
       if (m.kind === "swipe") suffix = ` (swipe × ${m.cells})`;
       div.className = g.kind === "trial" ? "trial" : "good";
       let body = gapText ? `✓ ${at}${suffix} — ${gapText}` : `✓ ${at}${suffix}`;
-      // 'forced via': summarize the constraint chain(s) that derived the move(s)
+      // 'forced via': how each touched cell was derived
+      const fmtChain = (f) => f.kind === "intersect"
+        ? `intersect ${f.labels.join(" ∩ ")}`
+        : f.labels.join(" → ");
       if (m.forcing && m.forcing.length) {
-        // For single-cell moves, show the chain directly. For swipe (multi-
-        // cell), show the union of chain labels with the deepest size.
         const chains = m.forcing.filter(f => f.size != null);
         if (chains.length === 0) body += " · via deeper reasoning";
-        else if (m.forcing.length === 1) {
-          const f = chains[0];
-          body += " · via " + f.labels.join(" → ");
-        } else {
+        else if (m.forcing.length === 1) body += " · via " + fmtChain(chains[0]);
+        else {
           const allLabels = new Set();
           let maxSize = 0;
-          for (const f of chains) { f.labels.forEach(l => allLabels.add(l)); if (f.size > maxSize) maxSize = f.size; }
-          body += ` · via ${[...allLabels].slice(0, 4).join(", ")}${allLabels.size > 4 ? "..." : ""} (max chain ${maxSize})`;
+          let anyIntersect = false;
+          for (const f of chains) {
+            f.labels.forEach(l => allLabels.add(l));
+            if (f.size > maxSize) maxSize = f.size;
+            if (f.kind === "intersect") anyIntersect = true;
+          }
+          const tag = anyIntersect ? "intersect" : `chain ${maxSize}`;
+          body += ` · via ${[...allLabels].slice(0, 4).join(", ")}${allLabels.size > 4 ? "..." : ""} (${tag})`;
         }
       }
       if (m.newlySat && m.newlySat.length) body += ` → ${m.newlySat.join(", ")}`;

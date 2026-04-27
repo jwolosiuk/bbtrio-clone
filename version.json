@@ -1,1 +1,1 @@
-{"sha":"0e3e3a5","fullSha":"0e3e3a5ea27798d1df133e75a8bbfd102bb11ee4","built":"2026-04-27T06:05:32Z","message":"Wire config.json to user's Supabase project"}
+{"sha":"1aa09cf","fullSha":"1aa09cfd9fbfd46dd42e054468339db507627071","built":"2026-04-27T06:23:08Z","message":"Add session analyzer: classify each move by min constraint chain"}

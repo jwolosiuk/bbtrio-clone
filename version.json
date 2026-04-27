@@ -1,1 +1,1 @@
-{"sha":"37a2443","fullSha":"37a2443ec189a733b55fe3bfc4a4fc2ee90f84bf","built":"2026-04-27T04:19:06Z","message":"Persist sessions to the repo via GitHub PAT"}
+{"sha":"be7d2f6","fullSha":"be7d2f69dc879d1f88c8a704df3105fcf4960032","built":"2026-04-27T05:36:27Z","message":"Persist sessions to Supabase keyed by device_id (no auth)"}

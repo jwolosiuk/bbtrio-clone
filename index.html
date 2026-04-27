@@ -787,10 +787,8 @@ EEEFFF
       renderTimer();
       renderTabs();
     updateLogButtonVis();
-      // Best-effort auto-sync if Supabase is configured.
-      if (localStorage.getItem(SUPA_URL_KEY) && localStorage.getItem(SUPA_KEY_KEY)) {
-        syncToSupabase(null);
-      }
+      // Best-effort auto-sync if Supabase is configured (config.json or localStorage).
+      if (supabaseEndpoint()) syncToSupabase(null);
     }
     const label = difficultyLabel();
     const parts = ["Solved!"];
@@ -1361,6 +1359,7 @@ EEEFFF
   const SUPA_URL_KEY = "bbtrio:supa-url";
   const SUPA_KEY_KEY = "bbtrio:supa-key";
   const DEVICE_ID_KEY = "bbtrio:device-id";
+  let appConfig = { supabase_url: "", supabase_anon_key: "" };
   function getDeviceId() {
     let id = localStorage.getItem(DEVICE_ID_KEY);
     if (!id) {
@@ -1370,18 +1369,23 @@ EEEFFF
     }
     return id;
   }
+  function supabaseEndpoint() {
+    // Priority: localStorage override (per-device custom project) → config.json baked in.
+    const url = localStorage.getItem(SUPA_URL_KEY) || appConfig.supabase_url;
+    const key = localStorage.getItem(SUPA_KEY_KEY) || appConfig.supabase_anon_key;
+    return url && key ? { url: url.replace(/\/$/, ""), key } : null;
+  }
   async function syncToSupabase(linkEl) {
-    let url = localStorage.getItem(SUPA_URL_KEY);
-    let key = localStorage.getItem(SUPA_KEY_KEY);
-    if (!url || !key) {
-      url = window.prompt("Supabase URL (https://xxx.supabase.co):", url || "");
+    let endpoint = supabaseEndpoint();
+    if (!endpoint) {
+      const url = window.prompt("Supabase URL (https://xxx.supabase.co):");
       if (!url) return false;
-      key = window.prompt("Supabase anon key (eyJ...):", key || "");
+      const key = window.prompt("Supabase anon key (eyJ...):");
       if (!key) return false;
       localStorage.setItem(SUPA_URL_KEY, url.trim().replace(/\/$/, ""));
       localStorage.setItem(SUPA_KEY_KEY, key.trim());
-      url = localStorage.getItem(SUPA_URL_KEY);
-      key = localStorage.getItem(SUPA_KEY_KEY);
+      endpoint = supabaseEndpoint();
+      if (!endpoint) return false;
     }
     const deviceId = getDeviceId();
     const { today, snapshot } = buildSnapshot();
@@ -1397,11 +1401,11 @@ EEEFFF
     };
     if (linkEl) linkEl.textContent = "↑ ...";
     try {
-      const res = await fetch(`${url}/rest/v1/sessions`, {
+      const res = await fetch(`${endpoint.url}/rest/v1/sessions`, {
         method: "POST",
         headers: {
-          "apikey": key,
-          "Authorization": `Bearer ${key}`,
+          "apikey": endpoint.key,
+          "Authorization": `Bearer ${endpoint.key}`,
           "Content-Type": "application/json",
           "x-device-id": deviceId,
           "Prefer": "return=minimal",
@@ -1415,7 +1419,7 @@ EEEFFF
       const err = await res.text();
       if (res.status === 401 || res.status === 403) {
         localStorage.removeItem(SUPA_KEY_KEY);
-        alert(`Supabase odrzucił klucz (${res.status}). Wpisz ponownie.\n${err.slice(0, 200)}`);
+        alert(`Supabase odrzucił klucz (${res.status}).\n${err.slice(0, 200)}`);
       } else {
         alert(`Sync failed: ${res.status}\n${err.slice(0, 300)}`);
       }
@@ -1484,7 +1488,15 @@ EEEFFF
     }
     return cellLines.join("\n") + "\n\n" + groupLines.join("\n");
   }
+  async function loadAppConfig() {
+    try {
+      const res = await fetch("config.json", { cache: "no-store" });
+      if (!res.ok) return;
+      appConfig = await res.json();
+    } catch {}
+  }
   async function boot() {
+    await loadAppConfig();
     renderBuildInfo();
     pruneOldStorage();
     let pool;

@@ -787,8 +787,10 @@ EEEFFF
       renderTimer();
       renderTabs();
     updateLogButtonVis();
-      // Best-effort auto-sync if the user has set up a GitHub PAT.
-      if (localStorage.getItem(GH_TOKEN_KEY)) syncToGithub(null);
+      // Best-effort auto-sync if Supabase is configured.
+      if (localStorage.getItem(SUPA_URL_KEY) && localStorage.getItem(SUPA_KEY_KEY)) {
+        syncToSupabase(null);
+      }
     }
     const label = difficultyLabel();
     const parts = ["Solved!"];
@@ -1329,7 +1331,7 @@ EEEFFF
     sync.className = "dl";
     sync.textContent = "↑ sync";
     sync.title = "Save session JSON to GitHub repo";
-    sync.addEventListener("click", (e) => { e.preventDefault(); syncToGithub(sync); });
+    sync.addEventListener("click", (e) => { e.preventDefault(); syncToSupabase(sync); });
     el.appendChild(sync);
     try {
       const res = await fetch("version.json", { cache: "no-store" });
@@ -1356,45 +1358,65 @@ EEEFFF
     for (const cat of CATEGORIES) snapshot.categories[cat] = loadStore(cat);
     return { today, snapshot };
   }
-  const GH_REPO = "jwolosiuk/bbtrio-clone";
-  const GH_TOKEN_KEY = "bbtrio:gh-token";
-  async function syncToGithub(linkEl) {
-    let token = localStorage.getItem(GH_TOKEN_KEY);
-    if (!token) {
-      token = window.prompt(
-        "Wklej GitHub fine-grained PAT z uprawnieniem 'Contents: Read and Write' " +
-        "dla repo " + GH_REPO + ".\n\nUtwórz: https://github.com/settings/personal-access-tokens/new"
-      );
-      if (!token) return;
-      token = token.trim();
-      localStorage.setItem(GH_TOKEN_KEY, token);
+  const SUPA_URL_KEY = "bbtrio:supa-url";
+  const SUPA_KEY_KEY = "bbtrio:supa-key";
+  const DEVICE_ID_KEY = "bbtrio:device-id";
+  function getDeviceId() {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = (crypto && crypto.randomUUID) ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem(DEVICE_ID_KEY, id);
     }
+    return id;
+  }
+  async function syncToSupabase(linkEl) {
+    let url = localStorage.getItem(SUPA_URL_KEY);
+    let key = localStorage.getItem(SUPA_KEY_KEY);
+    if (!url || !key) {
+      url = window.prompt("Supabase URL (https://xxx.supabase.co):", url || "");
+      if (!url) return false;
+      key = window.prompt("Supabase anon key (eyJ...):", key || "");
+      if (!key) return false;
+      localStorage.setItem(SUPA_URL_KEY, url.trim().replace(/\/$/, ""));
+      localStorage.setItem(SUPA_KEY_KEY, key.trim());
+      url = localStorage.getItem(SUPA_URL_KEY);
+      key = localStorage.getItem(SUPA_KEY_KEY);
+    }
+    const deviceId = getDeviceId();
     const { today, snapshot } = buildSnapshot();
-    const now = new Date();
-    const stamp = `${String(now.getHours()).padStart(2, "0")}-${String(now.getMinutes()).padStart(2, "0")}-${String(now.getSeconds()).padStart(2, "0")}`;
-    const path = `sessions/${today}/${stamp}-${currentCategory.toLowerCase()}.json`;
-    const body = JSON.stringify(snapshot, null, 2);
-    const content = btoa(unescape(encodeURIComponent(body)));
-    if (linkEl) { linkEl.textContent = "↑ ..."; }
+    const cat = (snapshot.categories || {})[currentCategory] || {};
+    const body = {
+      device_id: deviceId,
+      category: currentCategory,
+      puzzle_date: today,
+      total_ms: Number.isFinite(cat.accumulatedMs) ? Math.round(cat.accumulatedMs) : null,
+      undo_count: Number.isFinite(cat.undoCount) ? cat.undoCount : null,
+      finished_at: cat.finishedAt ? new Date(cat.finishedAt).toISOString() : null,
+      data: snapshot,
+    };
+    if (linkEl) linkEl.textContent = "↑ ...";
     try {
-      const res = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${path}`, {
-        method: "PUT",
+      const res = await fetch(`${url}/rest/v1/sessions`, {
+        method: "POST",
         headers: {
-          "Authorization": `Bearer ${token}`,
-          "Accept": "application/vnd.github+json",
+          "apikey": key,
+          "Authorization": `Bearer ${key}`,
           "Content-Type": "application/json",
+          "x-device-id": deviceId,
+          "Prefer": "return=minimal",
         },
-        body: JSON.stringify({ message: `Session ${today} ${stamp} ${currentCategory}`, content }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         if (linkEl) { linkEl.textContent = "✓ saved"; setTimeout(() => { linkEl.textContent = "↑ sync"; }, 1500); }
         return true;
       }
-      if (res.status === 401) {
-        localStorage.removeItem(GH_TOKEN_KEY);
-        alert("Token odrzucony — kliknij ↑ sync ponownie i wklej nowy.");
+      const err = await res.text();
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem(SUPA_KEY_KEY);
+        alert(`Supabase odrzucił klucz (${res.status}). Wpisz ponownie.\n${err.slice(0, 200)}`);
       } else {
-        const err = await res.text();
         alert(`Sync failed: ${res.status}\n${err.slice(0, 300)}`);
       }
     } catch (err) {

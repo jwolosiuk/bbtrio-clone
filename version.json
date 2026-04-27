@@ -1,1 +1,1 @@
-{"sha":"1aa09cf","fullSha":"1aa09cfd9fbfd46dd42e054468339db507627071","built":"2026-04-27T06:23:08Z","message":"Add session analyzer: classify each move by min constraint chain"}
+{"sha":"f818f8f","fullSha":"f818f8f64343c3ed26eb0120819fd395dad76bdc","built":"2026-04-27T06:27:41Z","message":"Show device_id in footer + analyze-sessions workflow"}

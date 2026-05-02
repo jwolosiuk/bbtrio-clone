@@ -1,1 +1,1 @@
-{"sha":"2162f3d","fullSha":"2162f3d7f3c3b7af690077eebf43d6e87a1d6930","built":"2026-05-02T06:16:10Z","message":"Constraint outlines: only outer perimeter, not per-cell box"}
+{"sha":"09a7108","fullSha":"09a7108e1012866dbd2b9934ce89a816d04e9bb7","built":"2026-05-02T06:21:53Z","message":"Stack via and simpler outlines so they don't overwrite each other"}

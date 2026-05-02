@@ -523,6 +523,10 @@ EEEFFF
     } catch { return null; }
   }
   function saveStore() {
+    // History view replaces `state` with a replayed snapshot for display only.
+    // Skip writes while it's active so we don't persist a historical state
+    // as the live one (which would corrupt the save on reload).
+    if (typeof _historyView !== "undefined" && _historyView && _historyView.idx != null) return;
     try {
       localStorage.setItem(storeKey(currentCategory), JSON.stringify({
         state, accumulatedMs: elapsedMs(), finishedAt, history, moveLog, undoCount
@@ -1715,6 +1719,7 @@ EEEFFF
   undoBtn.addEventListener("click", (e) => { undo(); e.currentTarget.blur(); });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
+      ensureLiveState();
       moveLog.push({ t: elapsedMs(), type: "hide" });
       pauseTimer();
       saveStore();
@@ -1727,7 +1732,7 @@ EEEFFF
       startTicking();
     }
   });
-  window.addEventListener("pagehide", () => { pauseTimer(); saveStore(); });
+  window.addEventListener("pagehide", () => { ensureLiveState(); pauseTimer(); saveStore(); });
 
   async function fetchText(url) {
     const res = await fetch(url, { cache: "no-store" });

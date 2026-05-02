@@ -1222,6 +1222,13 @@ EEEFFF
     const empty = () => Array.from({ length: sz }, () => Array(sz).fill(0));
     const MISCLICK_MS = 2000;
     let finalState = (puzzleDefs[currentCategory] || {}).solution;
+    // Find the most recent reset; everything before it is excluded from
+    // both the displayed log and the average-time buckets.
+    let resetIdx = -1, resetT = 0;
+    for (let i = moveLog.length - 1; i >= 0; i--) {
+      if (moveLog[i].type === "reset") { resetIdx = i; resetT = moveLog[i].t; break; }
+    }
+    const startEventIdx = resetIdx + 1;
 
     // Step 1: group click events into 'actions'. An action is either a
     // single tap, a swipe (leading click + cont:true clicks), or a cycle
@@ -1329,11 +1336,13 @@ EEEFFF
 
     // Step 4: emit one entry per good action, describing the preceding gap.
     const out = [];
-    let lastGoodT = 0;
+    let lastGoodT = resetT;        // skip pre-reset time when a reset happened
     let trialStart = null;
     let trialCounts = { actions: 0, undos: 0, resets: 0, misclicks: 0 };
     const resetTrial = () => { trialStart = null; trialCounts = { actions: 0, undos: 0, resets: 0, misclicks: 0 }; };
     for (const a of actionInfo) {
+      // Drop everything that happened before the most recent reset.
+      if (a.indices && a.indices[0] < startEventIdx) continue;
       if (a.label === "good") {
         let gap;
         if (trialStart !== null) gap = { kind: "trial", dur: a.t - trialStart, ...trialCounts };

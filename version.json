@@ -1,1 +1,1 @@
-{"sha":"73c7006","fullSha":"73c70067fc4f8fb9afb9f28bb950702e8b6d049e","built":"2026-05-02T06:07:50Z","message":"Don't corrupt save when backgrounded mid-history-view"}
+{"sha":"2162f3d","fullSha":"2162f3d7f3c3b7af690077eebf43d6e87a1d6930","built":"2026-05-02T06:16:10Z","message":"Constraint outlines: only outer perimeter, not per-cell box"}

@@ -1552,33 +1552,43 @@ EEEFFF
   }
   function applyConstraintHighlights(viaLabels, simplerLabel, moveCells) {
     clearConstraintHighlights();
-    // Draw a single outline around the union of cells covered by the given
-    // labels — show only the outer perimeter of the constraint region so
-    // the inner grid stays uncluttered. Edges of a cell are drawn only on
-    // sides where the neighbour is NOT in the same set.
-    const drawOutline = (labels, color) => {
-      if (!labels) return;
+    // Both highlights show only the outer perimeter of their cell set.
+    // Where they overlap on the same edge, via (green) is drawn 0-2px from
+    // the edge and simpler (orange) is drawn 2-4px (the green covers the
+    // outer 2px of the wider orange shadow). Where only one applies, only
+    // that edge is drawn at its natural width.
+    const buildSet = (labels) => {
+      const set = new Set();
+      if (!labels) return set;
       const list = Array.isArray(labels) ? labels : [...labels];
-      if (!list.length) return;
-      const all = [];
-      for (const lab of list) all.push(...cellsForLabel(lab));
-      const set = new Set(all.map(([r, c]) => `${r},${c}`));
-      for (const [r, c] of all) {
-        const idx = r * SIZE + c;
-        const cell = board.children[idx];
-        if (!cell) continue;
-        const parts = [];
-        if (!set.has(`${r - 1},${c}`)) parts.push(`inset 0 2px 0 0 ${color}`);
-        if (!set.has(`${r + 1},${c}`)) parts.push(`inset 0 -2px 0 0 ${color}`);
-        if (!set.has(`${r},${c - 1}`)) parts.push(`inset 2px 0 0 0 ${color}`);
-        if (!set.has(`${r},${c + 1}`)) parts.push(`inset -2px 0 0 0 ${color}`);
-        if (!parts.length) return;
-        const prev = cell.style.boxShadow;
-        cell.style.boxShadow = prev ? `${prev}, ${parts.join(", ")}` : parts.join(", ");
-      }
+      for (const lab of list) for (const [r, c] of cellsForLabel(lab)) set.add(`${r},${c}`);
+      return set;
     };
-    drawOutline(viaLabels, "var(--good)");
-    drawOutline(simplerLabel ? [simplerLabel] : null, "#d97706");
+    const viaSet = buildSet(viaLabels);
+    const simplerSet = buildSet(simplerLabel ? [simplerLabel] : null);
+    const allCells = new Set([...viaSet, ...simplerSet]);
+    for (const key of allCells) {
+      const [r, c] = key.split(",").map(Number);
+      const idx = r * SIZE + c;
+      const cell = board.children[idx];
+      if (!cell) continue;
+      const shadows = [];
+      // VIA first → on top.
+      if (viaSet.has(key)) {
+        if (!viaSet.has(`${r - 1},${c}`)) shadows.push("inset 0 2px 0 0 var(--good)");
+        if (!viaSet.has(`${r + 1},${c}`)) shadows.push("inset 0 -2px 0 0 var(--good)");
+        if (!viaSet.has(`${r},${c - 1}`)) shadows.push("inset 2px 0 0 0 var(--good)");
+        if (!viaSet.has(`${r},${c + 1}`)) shadows.push("inset -2px 0 0 0 var(--good)");
+      }
+      // SIMPLER second → behind via where they collide.
+      if (simplerSet.has(key)) {
+        if (!simplerSet.has(`${r - 1},${c}`)) shadows.push("inset 0 4px 0 0 #d97706");
+        if (!simplerSet.has(`${r + 1},${c}`)) shadows.push("inset 0 -4px 0 0 #d97706");
+        if (!simplerSet.has(`${r},${c - 1}`)) shadows.push("inset 4px 0 0 0 #d97706");
+        if (!simplerSet.has(`${r},${c + 1}`)) shadows.push("inset -4px 0 0 0 #d97706");
+      }
+      if (shadows.length) cell.style.boxShadow = shadows.join(", ");
+    }
     if (moveCells) {
       for (const { r, c } of moveCells) {
         const idx = r * SIZE + c;

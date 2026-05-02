@@ -1148,14 +1148,22 @@ EEEFFF
   // Find the smallest chain of constraints whose sequential application
   // forces (r,c) → targetV starting from stateBefore. Returns {size, labels}
   // or {size: null} if no chain of length ≤ 3 works.
-  function classifyMoveConstraints(stateBefore, r, c, targetV, constraints) {
-    // single
+  function classifyMoveConstraints(stateBefore, r, c, targetV, constraints, preferred = null) {
+    // single — prefer constraints the user is most likely reasoning about
+    // (those the move 'closes' come first), otherwise fall back to the
+    // priority encoded in `constraints` order (clue → block → row → col).
+    let firstSingle = null;
+    let preferredSingle = null;
     for (const k of constraints) {
       const s2 = stateBefore.map(row => row.slice());
       if (applyConstraintOnce(s2, k.cells, k.target) && s2[r][c] === targetV) {
-        return { size: 1, labels: [k.label] };
+        if (firstSingle === null) firstSingle = k;
+        if (preferred && preferred.has(k.label) && preferredSingle === null) preferredSingle = k;
+        if (preferredSingle && firstSingle) break;
       }
     }
+    if (preferredSingle) return { size: 1, labels: [preferredSingle.label] };
+    if (firstSingle) return { size: 1, labels: [firstSingle.label] };
     // intersection of two constraints (cardinality difference rule)
     for (let i = 0; i < constraints.length; i++) {
       for (let j = i + 1; j < constraints.length; j++) {
@@ -1284,13 +1292,15 @@ EEEFFF
       let forcing = null;
       let simplerAvailable = null;
       if (allGood) {
+        // Constraints the move just 'closed' are the most likely thing the
+        // user was reasoning about — pass them so the classifier prefers
+        // those when more than one explanation exists.
+        const preferred = new Set(newlySat);
         forcing = [];
         for (const [key, v] of touched) {
           const [r, c] = key.split(",").map(Number);
-          forcing.push({ r, c, v, ...classifyMoveConstraints(stateBefore, r, c, v, constraintList) });
+          forcing.push({ r, c, v, ...classifyMoveConstraints(stateBefore, r, c, v, constraintList, preferred) });
         }
-        // 'simpler available' = the user picked a non-single move while a
-        // single-constraint forced move existed somewhere on the board.
         const minSize = forcing.reduce((m, f) => f.size != null ? Math.min(m, f.size) : m, Infinity);
         if (minSize > 1) simplerAvailable = anySingleForcing(stateBefore, constraintList);
       }

@@ -1120,9 +1120,9 @@ EEEFFF
   function anySingleForcing(state, constraints) {
     for (const k of constraints) {
       const s2 = state.map(row => row.slice());
-      if (applyConstraintOnce(s2, k.cells, k.target)) return true;
+      if (applyConstraintOnce(s2, k.cells, k.target)) return k.label;
     }
-    return false;
+    return null;
   }
   function replayMoveLogUntil(idx) {
     let s = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
@@ -1279,7 +1279,7 @@ EEEFFF
       const satAfter = computeSatisfied(s);
       const newlySat = [...satAfter].filter(x => !satBefore.has(x));
       let forcing = null;
-      let simplerAvailable = false;
+      let simplerAvailable = null;
       if (allGood) {
         forcing = [];
         for (const [key, v] of touched) {
@@ -1289,7 +1289,7 @@ EEEFFF
         // 'simpler available' = the user picked a non-single move while a
         // single-constraint forced move existed somewhere on the board.
         const minSize = forcing.reduce((m, f) => f.size != null ? Math.min(m, f.size) : m, Infinity);
-        if (minSize > 1 && anySingleForcing(stateBefore, constraintList)) simplerAvailable = true;
+        if (minSize > 1) simplerAvailable = anySingleForcing(stateBefore, constraintList);
       }
       return { label: allGood ? "good" : "trial", touched, newlySat, forcing, simplerAvailable };
     };
@@ -1403,7 +1403,7 @@ EEEFFF
         else body += " · via " + uniq.join(" | ");
       }
       if (m.newlySat && m.newlySat.length) body += ` · zamyka ${m.newlySat.join(", ")}`;
-      if (m.simplerAvailable) body += " · prostszy ruch był dostępny!";
+      if (m.simplerAvailable) body += ` · simpler move available [${m.simplerAvailable}]`;
       div.textContent = body;
       div.classList.add("clickable");
       div.dataset.replayIdx = String(m.replayIdx);

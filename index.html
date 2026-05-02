@@ -1442,12 +1442,29 @@ EEEFFF
     summary.style.color = "var(--ink)";
     summary.textContent = "Średni czas przed ruchem (myślenie+próby):";
     el.appendChild(summary);
+    let avgSingle = null;
     for (const [k, arr] of Object.entries(buckets)) {
       if (arr.length === 0) continue;
       const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+      if (k === "single") avgSingle = avg;
       const line = document.createElement("div");
       line.textContent = `  ${k}: ${formatTime(avg)} (${arr.length} ruch${arr.length === 1 ? "" : "ów"})`;
       el.appendChild(line);
+    }
+    // Estimate time wasted by skipping simpler-single moves.
+    if (avgSingle != null) {
+      let savedMs = 0, missed = 0;
+      for (const m of moves) {
+        if (!m.simplerAvailable) continue;
+        const wasted = m.gap.dur - avgSingle;
+        if (wasted > 0) { savedMs += wasted; missed++; }
+      }
+      if (missed > 0) {
+        const line = document.createElement("div");
+        line.style.marginTop = "4px";
+        line.textContent = `If you had taken the simpler single-constraint move at average single-time on each of ${missed} 'simpler available' steps: ~${formatTime(savedMs)} saved`;
+        el.appendChild(line);
+      }
     }
   }
 

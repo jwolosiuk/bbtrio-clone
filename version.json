@@ -1,1 +1,1 @@
-{"sha":"3bbf39a","fullSha":"3bbf39a5c01c7ab3f722da620f3bd599cf1cb280","built":"2026-05-02T06:02:18Z","message":"Analysis: drop pre-reset moves from log + averages"}
+{"sha":"73c7006","fullSha":"73c70067fc4f8fb9afb9f28bb950702e8b6d049e","built":"2026-05-02T06:07:50Z","message":"Don't corrupt save when backgrounded mid-history-view"}

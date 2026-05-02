@@ -1170,18 +1170,35 @@ EEEFFF
     }
     if (preferredSingle) return { size: 1, labels: [preferredSingle.label] };
     if (firstSingle) return { size: 1, labels: [firstSingle.label] };
+    // For multi-constraint explanations the same cell may have several valid
+    // explanations. When the user has been reasoning along a particular line,
+    // prefer the explanation whose constraints overlap with `preferred` (the
+    // line being closed by this move + constraints carried over from the
+    // previous move). Fall back to the first match.
+    const score = (labels) => {
+      if (!preferred) return 0;
+      let n = 0;
+      for (const l of labels) if (preferred.has(l)) n++;
+      return n;
+    };
     // intersection of two constraints (cardinality difference rule)
+    let firstIntersect = null, bestIntersect = null, bestIntersectScore = 0;
     for (let i = 0; i < constraints.length; i++) {
       for (let j = i + 1; j < constraints.length; j++) {
         const A = constraints[i], B = constraints[j];
         const forced = applyIntersectionRule(stateBefore, A, B);
         if (!forced) continue;
         if (forced.some(f => f.r === r && f.c === c && f.v === targetV)) {
-          return { size: 2, kind: "intersect", labels: [A.label, B.label] };
+          if (firstIntersect === null) firstIntersect = [A.label, B.label];
+          const sc = score([A.label, B.label]);
+          if (sc > bestIntersectScore) { bestIntersect = [A.label, B.label]; bestIntersectScore = sc; }
         }
       }
     }
+    if (bestIntersect) return { size: 2, kind: "intersect", labels: bestIntersect };
+    if (firstIntersect) return { size: 2, kind: "intersect", labels: firstIntersect };
     // pair: A then B
+    let firstPair = null, bestPair = null, bestPairScore = 0;
     for (const a of constraints) {
       const sA = stateBefore.map(row => row.slice());
       if (!applyConstraintOnce(sA, a.cells, a.target)) continue;
@@ -1191,11 +1208,16 @@ EEEFFF
         if (!b.cells.some(([rr, cc]) => rr === r && cc === c)) continue;
         const sB = sA.map(row => row.slice());
         if (applyConstraintOnce(sB, b.cells, b.target) && sB[r][c] === targetV) {
-          return { size: 2, labels: [a.label, b.label] };
+          if (firstPair === null) firstPair = [a.label, b.label];
+          const sc = score([a.label, b.label]);
+          if (sc > bestPairScore) { bestPair = [a.label, b.label]; bestPairScore = sc; }
         }
       }
     }
+    if (bestPair) return { size: 2, labels: bestPair };
+    if (firstPair) return { size: 2, labels: firstPair };
     // triple
+    let firstTriple = null, bestTriple = null, bestTripleScore = 0;
     for (const a of constraints) {
       const sA = stateBefore.map(row => row.slice());
       if (!applyConstraintOnce(sA, a.cells, a.target)) continue;
@@ -1210,11 +1232,16 @@ EEEFFF
           if (!c3.cells.some(([rr, cc]) => rr === r && cc === c)) continue;
           const sC = sB.map(row => row.slice());
           if (applyConstraintOnce(sC, c3.cells, c3.target) && sC[r][c] === targetV) {
-            return { size: 3, labels: [a.label, b.label, c3.label] };
+            const labels = [a.label, b.label, c3.label];
+            if (firstTriple === null) firstTriple = labels;
+            const sc = score(labels);
+            if (sc > bestTripleScore) { bestTriple = labels; bestTripleScore = sc; }
           }
         }
       }
     }
+    if (bestTriple) return { size: 3, labels: bestTriple };
+    if (firstTriple) return { size: 3, labels: firstTriple };
     return { size: null, labels: [] };
   }
 
@@ -1285,6 +1312,7 @@ EEEFFF
     // 'good' if every touched cell's final value equals solution value.
     s = empty(); stack.length = 0;
     const constraintList = allConstraints();
+    let prevViaLabels = [];
     const classifyClickAction = (a) => {
       const satBefore = computeSatisfied(s);
       const stateBefore = s.map(row => row.slice());
@@ -1305,22 +1333,23 @@ EEEFFF
       let forcing = null;
       let simplerAvailable = null;
       if (allGood) {
-        // Constraints the move just 'closed' are the most likely thing the
-        // user was reasoning about — pass them so the classifier prefers
-        // those when more than one explanation exists.
-        const preferred = new Set(newlySat);
+        // Constraints the move 'closes' AND constraints the previous move was
+        // reasoning about are the most likely thing the user is thinking
+        // about — pass them so the classifier prefers explanations involving
+        // those when more than one is valid.
+        const preferred = new Set([...newlySat, ...prevViaLabels]);
         forcing = [];
         for (const [key, v] of touched) {
           const [r, c] = key.split(",").map(Number);
           forcing.push({ r, c, v, ...classifyMoveConstraints(stateBefore, r, c, v, constraintList, preferred) });
         }
-        // Only surface 'simpler available' when the analyzer couldn't classify
-        // the move with any of its named rules (single / intersect / chain).
-        // For an intersect or chain move the user actually executed a valid
-        // line of reasoning — a single-forced cell elsewhere on the board is
-        // unrelated and shouldn't be presented as 'you should have done X'.
         const minSize = forcing.reduce((m, f) => f.size != null ? Math.min(m, f.size) : m, Infinity);
-        if (minSize === Infinity) simplerAvailable = anySingleForcing(stateBefore, constraintList);
+        if (minSize > 1) simplerAvailable = anySingleForcing(stateBefore, constraintList);
+        const viaSet = new Set();
+        for (const f of forcing) for (const l of (f.labels || [])) viaSet.add(l);
+        prevViaLabels = [...viaSet];
+      } else {
+        prevViaLabels = [];
       }
       return { label: allGood ? "good" : "trial", touched, newlySat, forcing, simplerAvailable };
     };
@@ -1331,9 +1360,11 @@ EEEFFF
         actionInfo.push({ ...a, label: info.label, touched: info.touched, newlySat: info.newlySat, forcing: info.forcing, simplerAvailable: info.simplerAvailable });
       } else if (a.type === "undo") {
         if (stack.length) s = stack.pop();
+        prevViaLabels = [];
         actionInfo.push({ ...a, label: "undo" });
       } else if (a.type === "reset") {
         stack.push(s.map(r => r.slice())); s = empty();
+        prevViaLabels = [];
         actionInfo.push({ ...a, label: "reset" });
       } else {
         actionInfo.push({ ...a, label: "system" });

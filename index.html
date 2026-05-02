@@ -150,6 +150,7 @@
   .cell.via-highlight { box-shadow: inset 0 0 0 2px var(--good); }
   .cell.simpler-highlight { box-shadow: inset 0 0 0 2px #d97706; }
   .cell.via-highlight.simpler-highlight { box-shadow: inset 0 0 0 2px #d97706, inset 0 0 0 4px var(--good); }
+  .cell.move-highlight { outline: 3px solid var(--berry); outline-offset: -3px; }
   .analysis .simpler-tag { color: #d97706; }
 
   .build-info {
@@ -1344,8 +1345,10 @@ EEEFFF
         out.push({
           t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap,
           newlySat: a.newlySat || [], forcing: a.forcing || [], simplerAvailable: a.simplerAvailable,
-          // replayIdx points one past the last event of this action so the
-          // history view shows the state *after* the move was made.
+          touchedCells: [...(a.touched || new Map()).entries()].map(([k, v]) => {
+            const [r, c] = k.split(",").map(Number);
+            return { r, c, v };
+          }),
           replayIdx: a.indices[a.indices.length - 1] + 1,
         });
         lastGoodT = lastEvent.t;
@@ -1436,7 +1439,7 @@ EEEFFF
       for (const f of m.forcing || []) for (const l of (f.labels || [])) viaLabels.add(l);
       div.addEventListener("click", (e) => {
         e.stopPropagation();
-        toggleHistoryView(m.replayIdx, div, viaLabels, m.simplerAvailable);
+        toggleHistoryView(m.replayIdx, div, viaLabels, m.simplerAvailable, m.touchedCells);
       });
       el.appendChild(div);
     }
@@ -1532,9 +1535,9 @@ EEEFFF
     return [];
   }
   function clearConstraintHighlights() {
-    for (const cell of board.children) cell.classList.remove("via-highlight", "simpler-highlight");
+    for (const cell of board.children) cell.classList.remove("via-highlight", "simpler-highlight", "move-highlight");
   }
-  function applyConstraintHighlights(viaLabels, simplerLabel) {
+  function applyConstraintHighlights(viaLabels, simplerLabel, moveCells) {
     clearConstraintHighlights();
     const set = (labels, klass) => {
       for (const label of labels) {
@@ -1546,10 +1549,16 @@ EEEFFF
     };
     if (viaLabels) set(viaLabels, "via-highlight");
     if (simplerLabel) set([simplerLabel], "simpler-highlight");
+    if (moveCells) {
+      for (const { r, c } of moveCells) {
+        const idx = r * SIZE + c;
+        if (board.children[idx]) board.children[idx].classList.add("move-highlight");
+      }
+    }
   }
 
   let _historyView = { idx: null, savedState: null, div: null };
-  function toggleHistoryView(idx, div, viaLabels, simplerLabel) {
+  function toggleHistoryView(idx, div, viaLabels, simplerLabel, moveCells) {
     if (_historyView.idx === idx) {
       exitHistoryView();
       return;
@@ -1564,7 +1573,7 @@ EEEFFF
     state = replayMoveLogUntil(idx);
     document.body.classList.add("history-mode");
     render();
-    applyConstraintHighlights(viaLabels, simplerLabel);
+    applyConstraintHighlights(viaLabels, simplerLabel, moveCells);
   }
   function exitHistoryView() {
     if (_historyView.idx == null) return;

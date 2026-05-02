@@ -139,9 +139,14 @@
     font-family: ui-monospace, monospace;
     line-height: 1.55;
   }
-  .analysis div { padding: 1px 0; }
+  .analysis div { padding: 1px 4px; border-radius: 3px; }
   .analysis .good { color: var(--good); }
   .analysis .trial { color: var(--bad); }
+  .analysis .clickable { cursor: pointer; }
+  .analysis .clickable:hover { background: rgba(0, 0, 0, 0.04); }
+  .analysis .active-history { background: rgba(59, 42, 120, 0.12); }
+  body.history-mode .controls { opacity: 0.4; pointer-events: none; }
+  body.history-mode #board { box-shadow: 0 0 0 3px var(--berry); }
 
   .build-info {
     position: fixed; bottom: 6px; right: 8px;
@@ -607,6 +612,7 @@ EEEFFF
   }
 
   function onCellClick(r, c, dir = 1) {
+    ensureLiveState();
     if (finishedAt) return;
     if (isClueCell(r, c) || isGivenCell(r, c)) return;
     // Forward cycle: empty -> mark -> berry -> empty  (delta = 2 mod 3)
@@ -636,6 +642,7 @@ EEEFFF
     return { r, c };
   }
   function setCellTo(r, c, to) {
+    ensureLiveState();
     if (finishedAt) return;
     if (isClueCell(r, c) || isGivenCell(r, c)) return;
     const from = state[r][c];
@@ -675,6 +682,7 @@ EEEFFF
   }
 
   function undo() {
+    ensureLiveState();
     if (!history.length) return;
     const prev = history.pop();
     state = prev.state.map(row => row.slice());
@@ -1109,6 +1117,31 @@ EEEFFF
     }
     return forced.length > 0 ? forced : null;
   }
+  function anySingleForcing(state, constraints) {
+    for (const k of constraints) {
+      const s2 = state.map(row => row.slice());
+      if (applyConstraintOnce(s2, k.cells, k.target)) return true;
+    }
+    return false;
+  }
+  function replayMoveLogUntil(idx) {
+    let s = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    for (const key in givens) {
+      const [r, c] = key.split(",").map(Number);
+      // Givens are visualized as berries but state uses isGivenCell;
+      // we leave them as 0 in the working state for consistency with the live game.
+    }
+    const stk = [];
+    for (let i = 0; i < idx; i++) {
+      const e = moveLog[i];
+      if (!e) continue;
+      if (e.type === "click") { stk.push(s.map(r => r.slice())); s[e.r][e.c] = e.to; }
+      else if (e.type === "undo") { if (stk.length) s = stk.pop(); }
+      else if (e.type === "reset") { stk.push(s.map(r => r.slice())); s = Array.from({ length: SIZE }, () => Array(SIZE).fill(0)); }
+    }
+    return s;
+  }
+
   // Find the smallest chain of constraints whose sequential application
   // forces (r,c) → targetV starting from stateBefore. Returns {size, labels}
   // or {size: null} if no chain of length ≤ 3 works.
@@ -1245,23 +1278,26 @@ EEEFFF
       }
       const satAfter = computeSatisfied(s);
       const newlySat = [...satAfter].filter(x => !satBefore.has(x));
-      // Per-cell forcing classification (only meaningful for good actions —
-      // skip otherwise to keep the cost down).
       let forcing = null;
+      let simplerAvailable = false;
       if (allGood) {
         forcing = [];
         for (const [key, v] of touched) {
           const [r, c] = key.split(",").map(Number);
           forcing.push({ r, c, v, ...classifyMoveConstraints(stateBefore, r, c, v, constraintList) });
         }
+        // 'simpler available' = the user picked a non-single move while a
+        // single-constraint forced move existed somewhere on the board.
+        const minSize = forcing.reduce((m, f) => f.size != null ? Math.min(m, f.size) : m, Infinity);
+        if (minSize > 1 && anySingleForcing(stateBefore, constraintList)) simplerAvailable = true;
       }
-      return { label: allGood ? "good" : "trial", touched, newlySat, forcing };
+      return { label: allGood ? "good" : "trial", touched, newlySat, forcing, simplerAvailable };
     };
     const actionInfo = [];
     for (const a of actions) {
       if (a.type === "click") {
         const info = classifyClickAction(a);
-        actionInfo.push({ ...a, label: info.label, touched: info.touched, newlySat: info.newlySat, forcing: info.forcing });
+        actionInfo.push({ ...a, label: info.label, touched: info.touched, newlySat: info.newlySat, forcing: info.forcing, simplerAvailable: info.simplerAvailable });
       } else if (a.type === "undo") {
         if (stack.length) s = stack.pop();
         actionInfo.push({ ...a, label: "undo" });
@@ -1288,7 +1324,11 @@ EEEFFF
         const clickCount = a.indices.length;
         const kind = cellCount > 1 ? "swipe" : (clickCount > 1 ? "cycle" : "tap");
         const lastEvent = moveLog[a.indices[a.indices.length - 1]];
-        out.push({ t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap, newlySat: a.newlySat || [], forcing: a.forcing || [] });
+        out.push({
+          t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap,
+          newlySat: a.newlySat || [], forcing: a.forcing || [], simplerAvailable: a.simplerAvailable,
+          replayIdx: a.indices[0],
+        });
         lastGoodT = lastEvent.t;
         resetTrial();
       } else if (a.label === "trial") {
@@ -1361,9 +1401,79 @@ EEEFFF
         else body += " · via " + uniq.join(" | ");
       }
       if (m.newlySat && m.newlySat.length) body += ` · zamyka ${m.newlySat.join(", ")}`;
+      if (m.simplerAvailable) body += " · prostszy ruch był dostępny!";
       div.textContent = body;
+      div.classList.add("clickable");
+      div.dataset.replayIdx = String(m.replayIdx);
+      div.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleHistoryView(m.replayIdx, div);
+      });
       el.appendChild(div);
     }
+
+    // --- summary footer: average gap before each class ---
+    const buckets = { single: [], intersect: [], "chain-2": [], "chain-3": [], deeper: [] };
+    for (const m of moves) {
+      let cls = "deeper";
+      if (m.forcing && m.forcing.length) {
+        let minSize = Infinity, hasIntersect = false;
+        for (const f of m.forcing) {
+          if (f.size == null) continue;
+          if (f.size < minSize) minSize = f.size;
+          if (f.kind === "intersect") hasIntersect = true;
+        }
+        if (minSize === 1) cls = "single";
+        else if (minSize === 2 && hasIntersect) cls = "intersect";
+        else if (minSize === 2) cls = "chain-2";
+        else if (minSize === 3) cls = "chain-3";
+      }
+      buckets[cls].push(m.gap.dur);
+    }
+    const summary = document.createElement("div");
+    summary.style.marginTop = "10px";
+    summary.style.borderTop = "1px solid var(--thin)";
+    summary.style.paddingTop = "8px";
+    summary.style.color = "var(--ink)";
+    summary.textContent = "Średni czas przed ruchem (myślenie+próby):";
+    el.appendChild(summary);
+    for (const [k, arr] of Object.entries(buckets)) {
+      if (arr.length === 0) continue;
+      const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+      const line = document.createElement("div");
+      line.textContent = `  ${k}: ${formatTime(avg)} (${arr.length} ruch${arr.length === 1 ? "" : "ów"})`;
+      el.appendChild(line);
+    }
+  }
+
+  let _historyView = { idx: null, savedState: null, div: null };
+  function toggleHistoryView(idx, div) {
+    if (_historyView.idx === idx) {
+      exitHistoryView();
+      return;
+    }
+    if (_historyView.idx == null) {
+      _historyView.savedState = state.map(row => row.slice());
+    }
+    if (_historyView.div) _historyView.div.classList.remove("active-history");
+    _historyView.idx = idx;
+    _historyView.div = div;
+    div.classList.add("active-history");
+    state = replayMoveLogUntil(idx);
+    document.body.classList.add("history-mode");
+    render();
+  }
+  function exitHistoryView() {
+    if (_historyView.idx == null) return;
+    state = _historyView.savedState;
+    if (_historyView.div) _historyView.div.classList.remove("active-history");
+    _historyView = { idx: null, savedState: null, div: null };
+    document.body.classList.remove("history-mode");
+    render();
+  }
+  // Auto-exit history view when the user actually plays.
+  function ensureLiveState() {
+    if (_historyView.idx != null) exitHistoryView();
   }
 
   const COMPLETED_KEY = () => `${STORE_PREFIX}${todayKey()}:completed`;
@@ -1438,6 +1548,7 @@ EEEFFF
     updateLogButtonVis();
   }
   function resetBoard() {
+    ensureLiveState();
     const wasEverSolved = !!categoryFinishedAt(currentCategory);
     if (wasEverSolved) {
       // Replay mode: wipe all history so the fresh run starts clean.

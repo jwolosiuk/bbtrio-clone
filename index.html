@@ -1314,8 +1314,13 @@ EEEFFF
           const [r, c] = key.split(",").map(Number);
           forcing.push({ r, c, v, ...classifyMoveConstraints(stateBefore, r, c, v, constraintList, preferred) });
         }
+        // Only surface 'simpler available' when the analyzer couldn't classify
+        // the move with any of its named rules (single / intersect / chain).
+        // For an intersect or chain move the user actually executed a valid
+        // line of reasoning — a single-forced cell elsewhere on the board is
+        // unrelated and shouldn't be presented as 'you should have done X'.
         const minSize = forcing.reduce((m, f) => f.size != null ? Math.min(m, f.size) : m, Infinity);
-        if (minSize > 1) simplerAvailable = anySingleForcing(stateBefore, constraintList);
+        if (minSize === Infinity) simplerAvailable = anySingleForcing(stateBefore, constraintList);
       }
       return { label: allGood ? "good" : "trial", touched, newlySat, forcing, simplerAvailable };
     };

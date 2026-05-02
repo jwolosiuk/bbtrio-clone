@@ -147,9 +147,6 @@
   .analysis .active-history { background: rgba(59, 42, 120, 0.12); }
   body.history-mode .controls { opacity: 0.4; pointer-events: none; }
   body.history-mode #board { box-shadow: 0 0 0 3px var(--berry); }
-  .cell.via-highlight { box-shadow: inset 0 0 0 2px var(--good); }
-  .cell.simpler-highlight { box-shadow: inset 0 0 0 2px #d97706; }
-  .cell.via-highlight.simpler-highlight { box-shadow: inset 0 0 0 2px #d97706, inset 0 0 0 4px var(--good); }
   .cell.move-highlight { outline: 3px solid var(--berry); outline-offset: -3px; }
   .analysis .simpler-tag { color: #d97706; }
 
@@ -1548,20 +1545,40 @@ EEEFFF
     return [];
   }
   function clearConstraintHighlights() {
-    for (const cell of board.children) cell.classList.remove("via-highlight", "simpler-highlight", "move-highlight");
+    for (const cell of board.children) {
+      cell.style.boxShadow = "";
+      cell.classList.remove("move-highlight");
+    }
   }
   function applyConstraintHighlights(viaLabels, simplerLabel, moveCells) {
     clearConstraintHighlights();
-    const set = (labels, klass) => {
-      for (const label of labels) {
-        for (const [r, c] of cellsForLabel(label)) {
-          const idx = r * SIZE + c;
-          if (board.children[idx]) board.children[idx].classList.add(klass);
-        }
+    // Draw a single outline around the union of cells covered by the given
+    // labels — show only the outer perimeter of the constraint region so
+    // the inner grid stays uncluttered. Edges of a cell are drawn only on
+    // sides where the neighbour is NOT in the same set.
+    const drawOutline = (labels, color) => {
+      if (!labels) return;
+      const list = Array.isArray(labels) ? labels : [...labels];
+      if (!list.length) return;
+      const all = [];
+      for (const lab of list) all.push(...cellsForLabel(lab));
+      const set = new Set(all.map(([r, c]) => `${r},${c}`));
+      for (const [r, c] of all) {
+        const idx = r * SIZE + c;
+        const cell = board.children[idx];
+        if (!cell) continue;
+        const parts = [];
+        if (!set.has(`${r - 1},${c}`)) parts.push(`inset 0 2px 0 0 ${color}`);
+        if (!set.has(`${r + 1},${c}`)) parts.push(`inset 0 -2px 0 0 ${color}`);
+        if (!set.has(`${r},${c - 1}`)) parts.push(`inset 2px 0 0 0 ${color}`);
+        if (!set.has(`${r},${c + 1}`)) parts.push(`inset -2px 0 0 0 ${color}`);
+        if (!parts.length) return;
+        const prev = cell.style.boxShadow;
+        cell.style.boxShadow = prev ? `${prev}, ${parts.join(", ")}` : parts.join(", ");
       }
     };
-    if (viaLabels) set(viaLabels, "via-highlight");
-    if (simplerLabel) set([simplerLabel], "simpler-highlight");
+    drawOutline(viaLabels, "var(--good)");
+    drawOutline(simplerLabel ? [simplerLabel] : null, "#d97706");
     if (moveCells) {
       for (const { r, c } of moveCells) {
         const idx = r * SIZE + c;

@@ -1327,7 +1327,9 @@ EEEFFF
         out.push({
           t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap,
           newlySat: a.newlySat || [], forcing: a.forcing || [], simplerAvailable: a.simplerAvailable,
-          replayIdx: a.indices[0],
+          // replayIdx points one past the last event of this action so the
+          // history view shows the state *after* the move was made.
+          replayIdx: a.indices[a.indices.length - 1] + 1,
         });
         lastGoodT = lastEvent.t;
         resetTrial();

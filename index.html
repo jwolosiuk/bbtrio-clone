@@ -1154,33 +1154,37 @@ EEEFFF
   // Find the smallest chain of constraints whose sequential application
   // forces (r,c) → targetV starting from stateBefore. Returns {size, labels}
   // or {size: null} if no chain of length ≤ 3 works.
-  function classifyMoveConstraints(stateBefore, r, c, targetV, constraints, preferred = null) {
-    // single — prefer constraints the user is most likely reasoning about
-    // (those the move 'closes' come first), otherwise fall back to the
-    // priority encoded in `constraints` order (clue → block → row → col).
+  function classifyMoveConstraints(stateBefore, r, c, targetV, constraints, preferredStrong = null, preferredWeak = null) {
+    // Two-tier preference signal:
+    //  - 'strong' = constraints this move closes (newlySat / closed intersect)
+    //  - 'weak'   = constraints carried over from the previous move
+    // Strong dominates weak so a finishing move always attributes to what it
+    // finishes; weak only acts as tiebreaker when nothing strong matches.
+    const score = (labels) => {
+      let n = 0;
+      for (const l of labels) {
+        if (preferredStrong && preferredStrong.has(l)) n += 10;
+        if (preferredWeak && preferredWeak.has(l)) n += 1;
+      }
+      return n;
+    };
+    // single — fall back to the priority encoded in `constraints` order
+    // (clue → block → row → col) when nothing scores.
     let firstSingle = null;
-    let preferredSingle = null;
+    let bestSingle = null, bestSingleScore = 0;
     for (const k of constraints) {
       const s2 = stateBefore.map(row => row.slice());
       if (applyConstraintOnce(s2, k.cells, k.target) && s2[r][c] === targetV) {
         if (firstSingle === null) firstSingle = k;
-        if (preferred && preferred.has(k.label) && preferredSingle === null) preferredSingle = k;
-        if (preferredSingle && firstSingle) break;
+        const sc = score([k.label]);
+        if (sc > bestSingleScore) { bestSingle = k; bestSingleScore = sc; }
       }
     }
-    if (preferredSingle) return { size: 1, labels: [preferredSingle.label] };
+    if (bestSingle) return { size: 1, labels: [bestSingle.label] };
     if (firstSingle) return { size: 1, labels: [firstSingle.label] };
     // For multi-constraint explanations the same cell may have several valid
-    // explanations. When the user has been reasoning along a particular line,
-    // prefer the explanation whose constraints overlap with `preferred` (the
-    // line being closed by this move + constraints carried over from the
-    // previous move). Fall back to the first match.
-    const score = (labels) => {
-      if (!preferred) return 0;
-      let n = 0;
-      for (const l of labels) if (preferred.has(l)) n++;
-      return n;
-    };
+    // explanations. Score each candidate and pick the highest; fall back to
+    // the first match if nothing scores.
     // intersection of two constraints (cardinality difference rule)
     let firstIntersect = null, bestIntersect = null, bestIntersectScore = 0;
     for (let i = 0; i < constraints.length; i++) {
@@ -1369,15 +1373,30 @@ EEEFFF
       let forcing = null;
       let simplerAvailable = null;
       if (allGood) {
-        // Constraints the move 'closes' AND constraints the previous move was
-        // reasoning about are the most likely thing the user is thinking
-        // about — pass them so the classifier prefers explanations involving
-        // those when more than one is valid.
-        const preferred = new Set([...newlySat, ...prevViaLabels]);
+        // Strong preference: constraints the move 'closes'. Two flavors:
+        //  - basic newlySat (a row/col/block/clue reached its berry count)
+        //  - 2-way intersect closed: pre-state had forced cells, this move
+        //    placed one of them, post-state has no more forced cells.
+        const closedIntersectLabels = new Set();
+        for (let i = 0; i < constraintList.length; i++) {
+          for (let j = i + 1; j < constraintList.length; j++) {
+            const A = constraintList[i], B = constraintList[j];
+            const pre = applyIntersectionRule(stateBefore, A, B);
+            if (!pre || pre.length === 0) continue;
+            if (!pre.some(p => touched.has(`${p.r},${p.c}`))) continue;
+            const post = applyIntersectionRule(s, A, B);
+            if (!post || post.length === 0) {
+              closedIntersectLabels.add(A.label);
+              closedIntersectLabels.add(B.label);
+            }
+          }
+        }
+        const preferredStrong = new Set([...newlySat, ...closedIntersectLabels]);
+        const preferredWeak = new Set(prevViaLabels);
         forcing = [];
         for (const [key, v] of touched) {
           const [r, c] = key.split(",").map(Number);
-          forcing.push({ r, c, v, ...classifyMoveConstraints(stateBefore, r, c, v, constraintList, preferred) });
+          forcing.push({ r, c, v, ...classifyMoveConstraints(stateBefore, r, c, v, constraintList, preferredStrong, preferredWeak) });
         }
         const minSize = forcing.reduce((m, f) => f.size != null ? Math.min(m, f.size) : m, Infinity);
         if (minSize > 1) simplerAvailable = anySingleForcing(stateBefore, constraintList);

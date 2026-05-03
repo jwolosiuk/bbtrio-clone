@@ -1,1 +1,1 @@
-{"sha":"5050840","fullSha":"50508408700da5defc67c675d212ce2377586404","built":"2026-05-03T02:38:25Z","message":"Classifier: detect 3-way intersect via subset implication"}
+{"sha":"b530dc6","fullSha":"b530dc6fbad597d7366b80fd990e9348c9c2c38d","built":"2026-05-03T02:45:58Z","message":"Classifier: prefer closed-intersect labels over continuation"}

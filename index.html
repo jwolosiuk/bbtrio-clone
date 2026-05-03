@@ -1197,6 +1197,42 @@ EEEFFF
     }
     if (bestIntersect) return { size: 2, kind: "intersect", labels: bestIntersect };
     if (firstIntersect) return { size: 2, kind: "intersect", labels: firstIntersect };
+    // 3-way intersect via subset implication: if Y ⊆ X, then X\Y has
+    // exactly X.target - Y.target berries — a 'virtual' constraint we can
+    // intersect with a third Z. Catches reasoning like 'block has 3 berries,
+    // clue inside it has 1, so the rest of the block has 2 — combined with
+    // a row constraint that crosses the rest, this can force cells'.
+    const cellKey = ([rr, cc]) => `${rr},${cc}`;
+    let firstTri = null, bestTri = null, bestTriScore = 0;
+    for (let i = 0; i < constraints.length; i++) {
+      const X = constraints[i];
+      const xSet = new Set(X.cells.map(cellKey));
+      for (let j = 0; j < constraints.length; j++) {
+        if (j === i) continue;
+        const Y = constraints[j];
+        if (Y.cells.length >= X.cells.length) continue;
+        if (!Y.cells.every(c => xSet.has(cellKey(c)))) continue;
+        const ySet = new Set(Y.cells.map(cellKey));
+        const diff = X.cells.filter(c => !ySet.has(cellKey(c)));
+        const tgt = X.target - Y.target;
+        if (tgt < 0 || tgt > diff.length || diff.length === 0) continue;
+        const implied = { label: `${X.label}\\${Y.label}`, cells: diff, target: tgt };
+        for (let k = 0; k < constraints.length; k++) {
+          if (k === i || k === j) continue;
+          const Z = constraints[k];
+          const forced = applyIntersectionRule(stateBefore, implied, Z);
+          if (!forced) continue;
+          if (forced.some(f => f.r === r && f.c === c && f.v === targetV)) {
+            const labels = [X.label, Y.label, Z.label];
+            if (firstTri === null) firstTri = labels;
+            const sc = score(labels);
+            if (sc > bestTriScore) { bestTri = labels; bestTriScore = sc; }
+          }
+        }
+      }
+    }
+    if (bestTri) return { size: 3, kind: "intersect", labels: bestTri };
+    if (firstTri) return { size: 3, kind: "intersect", labels: firstTri };
     // pair: A then B
     let firstPair = null, bestPair = null, bestPairScore = 0;
     for (const a of constraints) {
@@ -1502,7 +1538,7 @@ EEEFFF
           if (f.kind === "intersect") hasIntersect = true;
         }
         if (minSize === 1) cls = "single";
-        else if (minSize === 2 && hasIntersect) cls = "intersect";
+        else if (hasIntersect) cls = "intersect";
         else if (minSize === 2) cls = "chain-2";
         else if (minSize === 3) cls = "chain-3";
       }

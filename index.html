@@ -1289,7 +1289,13 @@ EEEFFF
     const sz = SIZE;
     const empty = () => Array.from({ length: sz }, () => Array(sz).fill(0));
     const MISCLICK_MS = 2000;
-    let finalState = (puzzleDefs[currentCategory] || {}).solution;
+    let finalState; // assigned after Step 2 replay below — using the
+    // replay-derived state instead of puzzleDefs.solution lets the analyzer
+    // recognise *the user's* solution as ground truth, which matters when a
+    // puzzle has multiple valid berry placements (autoCheck only verifies
+    // berry counts + clue neighbours, not specific positions, so the user
+    // may legitimately end with a different valid layout than the solver
+    // happened to pick).
     // Find the most recent reset; everything before it is excluded from
     // both the displayed log and the average-time buckets.
     let resetIdx = -1, resetT = 0;
@@ -1331,7 +1337,7 @@ EEEFFF
       snapshots.push({ t: e.t, state: s.map(r => r.slice()) });
       if (e.type === "solve") break;
     }
-    if (!finalState) finalState = s;
+    finalState = s;
 
     // A click is a 'misclick' if the same cell returns to its pre-click value
     // within MISCLICK_MS (via undo, a cycle of clicks, or a reset).

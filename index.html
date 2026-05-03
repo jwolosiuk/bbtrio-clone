@@ -1406,13 +1406,13 @@ EEEFFF
       } else {
         prevViaLabels = [];
       }
-      return { label: allGood ? "good" : "trial", touched, newlySat, forcing, simplerAvailable };
+      return { label: allGood ? "good" : "trial", touched, newlySat, forcing, simplerAvailable, stateBefore };
     };
     const actionInfo = [];
     for (const a of actions) {
       if (a.type === "click") {
         const info = classifyClickAction(a);
-        actionInfo.push({ ...a, label: info.label, touched: info.touched, newlySat: info.newlySat, forcing: info.forcing, simplerAvailable: info.simplerAvailable });
+        actionInfo.push({ ...a, label: info.label, touched: info.touched, newlySat: info.newlySat, forcing: info.forcing, simplerAvailable: info.simplerAvailable, stateBefore: info.stateBefore });
       } else if (a.type === "undo") {
         if (stack.length) s = stack.pop();
         prevViaLabels = [];
@@ -1426,13 +1426,151 @@ EEEFFF
       }
     }
 
+    // Step 3.5: greedily merge consecutive single-cell good clicks within
+    // BURST_MS of each other, same direction, where one shared constraint
+    // (single / 2-way intersect / 3-way subset intersect) explains every
+    // touched cell from the burst's pre-state. Bursts boundaries also
+    // happen naturally when the previous click closes a constraint: the
+    // closed constraint cannot then force the next click, so the shared-
+    // via search fails on extension and a new burst starts.
+    const BURST_MS = 1500;
+    const tKey = ([rr, cc]) => `${rr},${cc}`;
+    const findSharedVia = (preState, cells) => {
+      const matchesForced = (forced) => cells.every(c => forced.some(f => f.r === c.r && f.c === c.c && f.v === c.v));
+      // single
+      for (const k of constraintList) {
+        const s2 = preState.map(row => row.slice());
+        if (!applyConstraintOnce(s2, k.cells, k.target)) continue;
+        let ok = true;
+        for (const c of cells) if (s2[c.r][c.c] !== c.v) { ok = false; break; }
+        if (ok) return { size: 1, labels: [k.label] };
+      }
+      // 2-way intersect
+      for (let i = 0; i < constraintList.length; i++) {
+        for (let j = i + 1; j < constraintList.length; j++) {
+          const A = constraintList[i], B = constraintList[j];
+          const forced = applyIntersectionRule(preState, A, B);
+          if (!forced) continue;
+          if (matchesForced(forced)) return { size: 2, kind: "intersect", labels: [A.label, B.label] };
+        }
+      }
+      // 3-way subset intersect
+      for (let i = 0; i < constraintList.length; i++) {
+        const X = constraintList[i];
+        const xSet = new Set(X.cells.map(tKey));
+        for (let j = 0; j < constraintList.length; j++) {
+          if (j === i) continue;
+          const Y = constraintList[j];
+          if (Y.cells.length >= X.cells.length) continue;
+          if (!Y.cells.every(c => xSet.has(tKey(c)))) continue;
+          const ySet = new Set(Y.cells.map(tKey));
+          const diff = X.cells.filter(c => !ySet.has(tKey(c)));
+          const tgt = X.target - Y.target;
+          if (tgt < 0 || tgt > diff.length || diff.length === 0) continue;
+          const virtual = { label: `${X.label}\\${Y.label}`, cells: diff, target: tgt };
+          for (let k = 0; k < constraintList.length; k++) {
+            if (k === i || k === j) continue;
+            const Z = constraintList[k];
+            const forced = applyIntersectionRule(preState, virtual, Z);
+            if (!forced) continue;
+            if (matchesForced(forced)) return { size: 3, kind: "intersect", labels: [X.label, Y.label, Z.label] };
+          }
+        }
+      }
+      return null;
+    };
+    const lastEventT = (act) => moveLog[act.indices[act.indices.length - 1]].t;
+    const dirOf = (act) => [...act.touched.values()][0];
+    const mergedInfo = [];
+    let burst = null; // { actions, dir, sharedVia, preState }
+    const flushBurst = () => {
+      if (!burst) return;
+      if (burst.actions.length === 1) {
+        mergedInfo.push(burst.actions[0]);
+      } else {
+        const acts = burst.actions;
+        const indices = [].concat(...acts.map(a => a.indices));
+        const touched = new Map();
+        for (const a of acts) for (const [k, v] of a.touched) touched.set(k, v);
+        const v = burst.sharedVia;
+        const forcing = [];
+        for (const [key, val] of touched) {
+          const [rr, cc] = key.split(",").map(Number);
+          forcing.push({ r: rr, c: cc, v: val, size: v.size, kind: v.kind, labels: v.labels });
+        }
+        const preState = burst.preState;
+        const postState = preState.map(r => r.slice());
+        for (const [key, val] of touched) {
+          const [rr, cc] = key.split(",").map(Number);
+          postState[rr][cc] = val;
+        }
+        const satBefore = computeSatisfied(preState);
+        const satAfter = computeSatisfied(postState);
+        const newlySat = [...satAfter].filter(x => !satBefore.has(x));
+        const simplerAvailable = v.size > 1 ? anySingleForcing(preState, constraintList) : null;
+        mergedInfo.push({
+          type: "click",
+          t: acts[0].t,
+          indices,
+          label: "good",
+          touched,
+          newlySat,
+          forcing,
+          simplerAvailable,
+          stateBefore: preState,
+          kind: "burst",
+        });
+      }
+      burst = null;
+    };
+    for (const a of actionInfo) {
+      const eligible = a.label === "good" && a.type === "click" && a.touched && a.touched.size === 1 && a.forcing && a.forcing.length === 1;
+      if (!eligible) {
+        flushBurst();
+        mergedInfo.push(a);
+        continue;
+      }
+      const aDir = dirOf(a);
+      const aFirstT = moveLog[a.indices[0]].t;
+      if (burst) {
+        const inWindow = (aFirstT - lastEventT(burst.actions[burst.actions.length - 1])) <= BURST_MS;
+        const sameDir = aDir === burst.dir;
+        if (inWindow && sameDir) {
+          const cells = [];
+          for (const ax of burst.actions) for (const [k, val] of ax.touched) {
+            const [rr, cc] = k.split(",").map(Number);
+            cells.push({ r: rr, c: cc, v: val });
+          }
+          for (const [k, val] of a.touched) {
+            const [rr, cc] = k.split(",").map(Number);
+            cells.push({ r: rr, c: cc, v: val });
+          }
+          const sv = findSharedVia(burst.preState, cells);
+          if (sv) {
+            burst.actions.push(a);
+            burst.sharedVia = sv;
+            continue;
+          }
+        }
+        flushBurst();
+      }
+      const seedF = a.forcing[0];
+      burst = {
+        actions: [a],
+        dir: aDir,
+        sharedVia: { size: seedF.size, kind: seedF.kind, labels: seedF.labels || [] },
+        preState: a.stateBefore,
+      };
+    }
+    flushBurst();
+
     // Step 4: emit one entry per good action, describing the preceding gap.
     const out = [];
     let lastGoodT = resetT;        // skip pre-reset time when a reset happened
     let trialStart = null;
     let trialCounts = { actions: 0, undos: 0, resets: 0, misclicks: 0 };
     const resetTrial = () => { trialStart = null; trialCounts = { actions: 0, undos: 0, resets: 0, misclicks: 0 }; };
-    for (const a of actionInfo) {
+    for (const a of mergedInfo) {
       // Drop everything that happened before the most recent reset.
       if (a.indices && a.indices[0] < startEventIdx) continue;
       if (a.label === "good") {
@@ -1441,7 +1579,7 @@ EEEFFF
         else gap = { kind: "thinking", dur: a.t - lastGoodT };
         const cellCount = a.touched.size;
         const clickCount = a.indices.length;
-        const kind = cellCount > 1 ? "swipe" : (clickCount > 1 ? "cycle" : "tap");
+        const kind = a.kind || (cellCount > 1 ? "swipe" : (clickCount > 1 ? "cycle" : "tap"));
         const lastEvent = moveLog[a.indices[a.indices.length - 1]];
         out.push({
           t: a.t, endT: lastEvent.t, cells: cellCount, clicks: clickCount, kind, gap,
@@ -1507,6 +1645,7 @@ EEEFFF
       }
       let suffix = "";
       if (m.kind === "swipe") suffix = ` (swipe × ${m.cells})`;
+      else if (m.kind === "burst") suffix = ` (burst × ${m.cells})`;
       div.className = g.kind === "trial" ? "trial" : "good";
       let body = gapText ? `✓ ${at}${suffix} — ${gapText}` : `✓ ${at}${suffix}`;
       // 'forced via': how each touched cell was derived. The connector itself

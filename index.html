@@ -76,23 +76,41 @@
   .board-wrap {
     display: inline-grid;
     grid-template-columns: 16px auto;
-    grid-template-rows: 16px auto;
+    grid-template-rows: 16px auto 16px;
     gap: 4px;
     position: relative;
   }
   .col-labels {
     grid-column: 2; grid-row: 1;
     display: grid;
-    color: var(--muted); font-size: 11px;
+    color: var(--ink); font-size: 11px; font-weight: 600;
     font-family: ui-monospace, monospace;
     text-align: center;
+    transition: color 180ms ease, font-weight 180ms ease;
+  }
+  .col-labels-bottom {
+    grid-column: 2; grid-row: 3;
+    display: grid;
+    color: var(--ink); font-size: 11px; font-weight: 600;
+    font-family: ui-monospace, monospace;
+    text-align: center;
+    transition: color 180ms ease, font-weight 180ms ease;
   }
   .row-labels {
     grid-column: 1; grid-row: 2;
     display: grid;
-    color: var(--muted); font-size: 11px;
+    color: var(--ink); font-size: 11px; font-weight: 600;
     font-family: ui-monospace, monospace;
     align-items: center; justify-items: center;
+    transition: color 180ms ease, font-weight 180ms ease;
+  }
+  .col-labels > div, .col-labels-bottom > div, .row-labels > div {
+    transition: color 180ms ease, font-weight 180ms ease;
+  }
+  .col-labels > div.satisfied,
+  .col-labels-bottom > div.satisfied,
+  .row-labels > div.satisfied {
+    color: var(--clue-satisfied); font-weight: 400;
   }
   .board {
     grid-column: 2; grid-row: 2;
@@ -255,6 +273,7 @@
     <div id="col-labels" class="col-labels"></div>
     <div id="row-labels" class="row-labels"></div>
     <div id="board" class="board" aria-label="Puzzle board"></div>
+    <div id="col-labels-bottom" class="col-labels-bottom"></div>
   </div>
 
   <div class="controls">
@@ -800,6 +819,7 @@ EEEFFF
         cell.appendChild(m);
       }
     }
+    renderLabelSatisfaction();
   }
 
   function isBerry(r, c) {
@@ -981,14 +1001,17 @@ EEEFFF
 
   function buildBoardLabels() {
     const cEl = document.getElementById("col-labels");
+    const cBotEl = document.getElementById("col-labels-bottom");
     const rEl = document.getElementById("row-labels");
-    if (cEl) {
-      cEl.innerHTML = "";
-      cEl.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
+    for (const el of [cEl, cBotEl]) {
+      if (!el) continue;
+      el.innerHTML = "";
+      el.style.gridTemplateColumns = `repeat(${SIZE}, 1fr)`;
       for (let c = 0; c < SIZE; c++) {
         const d = document.createElement("div");
         d.textContent = colLabel(c);
-        cEl.appendChild(d);
+        d.dataset.c = c;
+        el.appendChild(d);
       }
     }
     if (rEl) {
@@ -997,7 +1020,44 @@ EEEFFF
       for (let r = 0; r < SIZE; r++) {
         const d = document.createElement("div");
         d.textContent = rowLabel(r);
+        d.dataset.r = r;
         rEl.appendChild(d);
+      }
+    }
+  }
+  function isRowSatisfied(r) {
+    let b = 0, o = 0;
+    for (let c = 0; c < SIZE; c++) {
+      if (isClueCell(r, c)) continue;
+      if (isBerry(r, c)) b++;
+      else if (state[r][c] === 0) o++;
+    }
+    return b === PER && o === 0;
+  }
+  function isColSatisfied(c) {
+    let b = 0, o = 0;
+    for (let r = 0; r < SIZE; r++) {
+      if (isClueCell(r, c)) continue;
+      if (isBerry(r, c)) b++;
+      else if (state[r][c] === 0) o++;
+    }
+    return b === PER && o === 0;
+  }
+  function renderLabelSatisfaction() {
+    const cEl = document.getElementById("col-labels");
+    const cBotEl = document.getElementById("col-labels-bottom");
+    const rEl = document.getElementById("row-labels");
+    for (const el of [cEl, cBotEl]) {
+      if (!el) continue;
+      for (const d of el.children) {
+        const c = +d.dataset.c;
+        d.classList.toggle("satisfied", isColSatisfied(c));
+      }
+    }
+    if (rEl) {
+      for (const d of rEl.children) {
+        const r = +d.dataset.r;
+        d.classList.toggle("satisfied", isRowSatisfied(r));
       }
     }
   }

@@ -551,11 +551,26 @@ EEEFFF
   const puzzleDefs = {}; // { cat: { SIZE, PER, clues, givens, groupOf, difficulty } }
   let currentCategory = "Standard";
   const STORE_PREFIX = "bbtrio:v5:";
+  // Match pickDailyEntry's local-date hashing so the stored bucket lines up with
+  // the puzzle picked for "today" — UTC vs local drifts across local midnight.
   const todayKey = () => {
     const d = new Date();
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   };
   const storeKey = (cat) => `${STORE_PREFIX}${todayKey()}:${cat}`;
+  // Stable hash of a puzzle's structure. Saved with state and verified on
+  // load so a state from a different puzzle on the same calendar day cannot
+  // be replayed onto today's board.
+  function fingerprintOf(pz) {
+    if (!pz) return null;
+    const parts = [`s=${pz.SIZE}`, `p=${pz.PER}`];
+    const cKeys = Object.keys(pz.clues).sort();
+    parts.push("c=" + cKeys.map(k => `${k}:${pz.clues[k]}`).join(","));
+    parts.push("g=" + Object.keys(pz.givens).sort().join(","));
+    parts.push("m=" + pz.groupOf.map(row => row.join("")).join("/"));
+    return cyrb53(parts.join("|")).toString(36);
+  }
+  function puzzleFingerprint() { return fingerprintOf(puzzleDefs[currentCategory]); }
   const HISTORY_MAX = 200;
   let state;
   let history;     // array of { state, finishedAt } snapshots BEFORE each action
@@ -591,6 +606,10 @@ EEEFFF
       const data = JSON.parse(raw);
       const pz = puzzleDefs[cat];
       if (!pz || !Array.isArray(data.state) || data.state.length !== pz.SIZE) return null;
+      // Reject saves that don't match the active puzzle for this category.
+      // Missing fp = pre-fingerprint save: we can't verify it, so discard
+      // rather than risk replaying onto a different puzzle.
+      if (!data.fp || data.fp !== fingerprintOf(pz)) return null;
       return data;
     } catch { return null; }
   }
@@ -601,7 +620,8 @@ EEEFFF
     if (typeof _historyView !== "undefined" && _historyView && _historyView.idx != null) return;
     try {
       localStorage.setItem(storeKey(currentCategory), JSON.stringify({
-        state, accumulatedMs: elapsedMs(), finishedAt, history, moveLog, undoCount
+        state, accumulatedMs: elapsedMs(), finishedAt, history, moveLog, undoCount,
+        fp: puzzleFingerprint(),
       }));
     } catch {}
   }

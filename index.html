@@ -377,7 +377,9 @@ EEEFFF
 
   // Precomputed groups and clue neighbors for the solver.
   let ROWS, COLS, BLOCKS, CLUE_LIST, DIFFICULTY_DEPTH;
-  const DIFF_LABELS = ["Trivial", "Easy", "Medium", "Hard", "Expert", "Grandmaster"];
+  // Indices: 0 = solved by single-constraint propagation only, 1 = needed
+  // pair-of-constraints intersection, 2 = harder than that.
+  const DIFF_LABELS = ["Trivial", "Medium", "Difficult"];
   function buildSolverTables() {
     ROWS = []; COLS = []; BLOCKS = [];
     for (let r = 0; r < SIZE; r++) {
@@ -529,19 +531,90 @@ EEEFFF
     }
     return s;
   }
+  // Pair-of-constraints intersection: pick two constraints (row/col/block/clue),
+  // split their open cells into intersection and complements, and use the two
+  // remaining-need counts to bound how many berries can sit in each region. If
+  // any region's bounds collapse to all-or-none, force it. Returns true if any
+  // forcing happened, so callers can re-run propagation.
+  function applyPairIntersection(s) {
+    const constraints = [];
+    const push = (cells, need0) => {
+      let placed = 0;
+      const open = [];
+      for (const [r, c] of cells) {
+        if (s[r][c] === 1) placed++;
+        else if (s[r][c] === 0) open.push([r, c]);
+      }
+      if (open.length > 0) constraints.push({ open, need: need0 - placed });
+    };
+    for (const g of ROWS) push(g, PER);
+    for (const g of COLS) push(g, PER);
+    for (const g of BLOCKS) push(g, PER);
+    for (const cl of CLUE_LIST) push(cl.ns, cl.v);
+
+    const force = (cells, val) => { for (const [r, c] of cells) s[r][c] = val; };
+    for (let i = 0; i < constraints.length; i++) {
+      const A = constraints[i];
+      const aSet = new Set(A.open.map(([r, c]) => r * SIZE + c));
+      for (let j = i + 1; j < constraints.length; j++) {
+        const B = constraints[j];
+        const inter = [], bOnly = [];
+        for (const [r, c] of B.open) {
+          (aSet.has(r * SIZE + c) ? inter : bOnly).push([r, c]);
+        }
+        if (inter.length === 0) continue;
+        const interSet = new Set(inter.map(([r, c]) => r * SIZE + c));
+        const aOnly = A.open.filter(([r, c]) => !interSet.has(r * SIZE + c));
+        const loA = Math.max(0, A.need - aOnly.length);
+        const hiA = Math.min(inter.length, A.need);
+        const loB = Math.max(0, B.need - bOnly.length);
+        const hiB = Math.min(inter.length, B.need);
+        const lo = Math.max(loA, loB);
+        const hi = Math.min(hiA, hiB);
+        if (lo > hi) continue; // contradiction; trust propagation/Nishio elsewhere
+        let changed = false;
+        if (hi === 0) { force(inter, 2); changed = true; }
+        else if (lo === inter.length) { force(inter, 1); changed = true; }
+        if (aOnly.length) {
+          const aOnlyHi = A.need - lo, aOnlyLo = A.need - hi;
+          if (aOnlyHi === 0) { force(aOnly, 2); changed = true; }
+          else if (aOnlyLo === aOnly.length) { force(aOnly, 1); changed = true; }
+        }
+        if (bOnly.length) {
+          const bOnlyHi = B.need - lo, bOnlyLo = B.need - hi;
+          if (bOnlyHi === 0) { force(bOnly, 2); changed = true; }
+          else if (bOnlyLo === bOnly.length) { force(bOnly, 1); changed = true; }
+        }
+        if (changed) return true;
+      }
+    }
+    return false;
+  }
+  // Classify by literally trying to solve: 0 = single-constraint propagation
+  // suffices, 1 = also needs at least one pair-intersection step, 2 = neither
+  // is enough.
+  function classifyDifficulty() {
+    const s = solverStartingState();
+    let usedPair = false;
+    while (true) {
+      if (!solverPropagate(s)) return 2; // shouldn't happen on a valid puzzle
+      if (solverComplete(s)) return usedPair ? 1 : 0;
+      if (applyPairIntersection(s)) { usedPair = true; continue; }
+      return 2;
+    }
+  }
   function computeDifficulty() {
     buildSolverTables();
-    const res = solveNishio(2); // cap at depth 2 so page load stays snappy
-    DIFFICULTY_DEPTH = res.solved ? res.maxUsed : null;
-    let solution = res.solution || null;
-    if (!solution) solution = solveDFS();
+    DIFFICULTY_DEPTH = classifyDifficulty();
     if (puzzleDefs[currentCategory]) {
       puzzleDefs[currentCategory].difficulty = DIFFICULTY_DEPTH;
-      puzzleDefs[currentCategory].solution = solution;
+      if (!puzzleDefs[currentCategory].solution) {
+        puzzleDefs[currentCategory].solution = solveDFS();
+      }
     }
   }
   function difficultyLabel() {
-    if (DIFFICULTY_DEPTH == null) return null;
+    if (DIFFICULTY_DEPTH == null) return DIFF_LABELS[DIFF_LABELS.length - 1];
     return DIFF_LABELS[Math.min(DIFFICULTY_DEPTH, DIFF_LABELS.length - 1)];
   }
 
@@ -902,7 +975,7 @@ EEEFFF
     }
     const label = difficultyLabel();
     const parts = ["Solved!"];
-    if (label) parts.push(label);
+    if (label) parts.push(`Difficulty: ${label}`);
     if (undoCount > 0) parts.push(`${undoCount} undo`);
     setStatus(parts.join(" · "), true);
     renderAnalysis();

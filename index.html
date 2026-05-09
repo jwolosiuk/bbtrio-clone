@@ -269,7 +269,10 @@
     transition: background 120ms ease, border-color 120ms ease;
     z-index: 10;
   }
-  .date-toggle[aria-pressed="true"] { background: var(--hover); border-color: var(--line); }
+  .date-toggle[aria-pressed="true"] {
+    background: var(--ink); border-color: var(--ink); color: var(--bg);
+    font-weight: 600;
+  }
   .date-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
   @media (hover: hover) {
     .date-toggle:hover:not(:disabled) { background: var(--hover); border-color: var(--line); }
@@ -2532,8 +2535,14 @@ EEEFFF
     }
     const apply = () => {
       const onYesterday = currentDateOffset !== 0;
-      btn.textContent = onYesterday ? "Today" : "Yesterday";
-      btn.title = onYesterday ? "Back to today's puzzle" : "Show yesterday's puzzle";
+      // Label is always the toggle's *meaning* (yesterday's puzzle); the
+      // pressed/filled style tells you whether it's active. This avoids the
+      // ambiguity of an action-label (where "Today" could mean either
+      // "currently on today" or "click to go to today").
+      btn.textContent = "Yesterday";
+      btn.title = onYesterday
+        ? "Viewing yesterday's puzzle — click to return to today"
+        : "Click to view yesterday's puzzle";
       btn.setAttribute("aria-pressed", onYesterday ? "true" : "false");
     };
     apply();

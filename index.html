@@ -2168,6 +2168,9 @@ EEEFFF
   function switchCategory(cat) {
     if (cat === currentCategory) return;
     if (!isCategoryUnlocked(cat)) return;
+    // Restore live state before swapping puzzles, otherwise _historyView's
+    // saved snapshot would later be replayed onto the new category's board.
+    ensureLiveState();
     pauseTimer();           // freeze previous category's clock
     const from = currentCategory;
     moveLog.push({ t: elapsedMs(), type: "switch_out", to: cat });
@@ -2504,6 +2507,9 @@ EEEFFF
   function setDateOffset(offset) {
     if (offset === currentDateOffset) return;
     if (!puzzlePool) return;
+    // Same reason as in switchCategory: exit history-view first so the saved
+    // snapshot can't bleed into the other day's board on the next click.
+    ensureLiveState();
     pauseTimer();
     saveStore();
     stopTicking();

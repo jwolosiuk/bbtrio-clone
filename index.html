@@ -1012,7 +1012,7 @@ EEEFFF
     }
     const label = difficultyLabel();
     const parts = ["Solved!"];
-    if (label) parts.push(`Difficulty: ${label}`);
+    if (label) parts.push(label);
     if (undoCount > 0) parts.push(`${undoCount} undo`);
     setStatus(parts.join(" · "), true);
     renderAnalysis();

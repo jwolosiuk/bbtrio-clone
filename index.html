@@ -2279,7 +2279,13 @@ EEEFFF
       const res = await fetch("version.json", { cache: "no-store" });
       if (!res.ok) return;
       const v = await res.json();
-      const built = v.built ? v.built.replace(/[TZ]/g, " ").trim() : "";
+      // version.json stores UTC; render in the viewer's local time so the
+      // build timestamp matches the wall clock they see.
+      const builtDate = v.built ? new Date(v.built) : null;
+      const pad = (n) => String(n).padStart(2, "0");
+      const built = builtDate && !isNaN(builtDate)
+        ? `${builtDate.getFullYear()}-${pad(builtDate.getMonth() + 1)}-${pad(builtDate.getDate())} ${pad(builtDate.getHours())}:${pad(builtDate.getMinutes())}:${pad(builtDate.getSeconds())}`
+        : "";
       const repo = "https://github.com/jwolosiuk/bbtrio-clone";
       const span = document.createElement("span");
       span.innerHTML = `<a href="${repo}/commit/${v.fullSha || v.sha}" target="_blank" rel="noopener">${v.sha || ""}</a> · ${built}`;

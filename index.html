@@ -257,9 +257,27 @@
   @media (hover: hover) {
     .theme-toggle:hover { background: var(--hover); border-color: var(--line); }
   }
+
+  .date-toggle {
+    position: fixed; top: 10px; right: 54px;
+    height: 34px; padding: 0 12px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid var(--thin); background: var(--bg);
+    color: var(--ink); font-size: 12px; line-height: 1;
+    letter-spacing: 0.3px;
+    border-radius: 999px; cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+    z-index: 10;
+  }
+  .date-toggle[aria-pressed="true"] { background: var(--hover); border-color: var(--line); }
+  .date-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+  @media (hover: hover) {
+    .date-toggle:hover:not(:disabled) { background: var(--hover); border-color: var(--line); }
+  }
 </style>
 </head>
 <body>
+  <button id="date-toggle" class="date-toggle" type="button" aria-pressed="false" title="Show yesterday's puzzle">Yesterday</button>
   <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode"></button>
   <header>
     <h1>Blueberry Trio</h1>
@@ -624,13 +642,22 @@ EEEFFF
   const puzzleDefs = {}; // { cat: { SIZE, PER, clues, givens, groupOf, difficulty } }
   let currentCategory = "Standard";
   const STORE_PREFIX = "bbtrio:v5:";
-  // Match pickDailyEntry's local-date hashing so the stored bucket lines up with
-  // the puzzle picked for "today" — UTC vs local drifts across local midnight.
-  const todayKey = () => {
+  // 0 = today; -1 = yesterday. The "Yesterday" toggle flips this so the user
+  // can sync up with a friend whose timezone hasn't crossed midnight yet.
+  let currentDateOffset = 0;
+  function activeDate() {
     const d = new Date();
+    d.setDate(d.getDate() + currentDateOffset);
+    return d;
+  }
+  // Match pickDailyEntry's local-date hashing so the stored bucket lines up
+  // with the puzzle picked for the active day — UTC vs local drifts across
+  // local midnight.
+  function dateKeyOf(d) {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  };
-  const storeKey = (cat) => `${STORE_PREFIX}${todayKey()}:${cat}`;
+  }
+  const dateKey = () => dateKeyOf(activeDate());
+  const storeKey = (cat) => `${STORE_PREFIX}${dateKey()}:${cat}`;
   // Stable hash of a puzzle's structure. Saved with state and verified on
   // load so a state from a different puzzle on the same calendar day cannot
   // be replayed onto today's board.
@@ -701,15 +728,25 @@ EEEFFF
   function clearStore(cat = currentCategory) {
     try { localStorage.removeItem(storeKey(cat)); } catch {}
   }
+  // Keep the last RETAIN_DAYS calendar days of saves so the Yesterday toggle
+  // can resurrect a previous day's log/state/timer. Older buckets are dropped
+  // to keep localStorage from growing without bound.
+  const RETAIN_DAYS = 7;
   function pruneOldStorage() {
     try {
       const prefix = STORE_PREFIX;
-      const today = todayKey();
+      const keep = new Set();
+      const now = new Date();
+      for (let i = 0; i < RETAIN_DAYS; i++) {
+        const d = new Date(now);
+        d.setDate(now.getDate() - i);
+        keep.add(dateKeyOf(d));
+      }
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
-        if (k && k.startsWith(prefix) && !k.startsWith(prefix + today)) {
-          localStorage.removeItem(k);
-        }
+        if (!k || !k.startsWith(prefix)) continue;
+        const datePart = k.slice(prefix.length).split(":")[0];
+        if (!keep.has(datePart)) localStorage.removeItem(k);
       }
     } catch {}
   }
@@ -2074,7 +2111,7 @@ EEEFFF
     if (_historyView.idx != null) exitHistoryView();
   }
 
-  const COMPLETED_KEY = () => `${STORE_PREFIX}${todayKey()}:completed`;
+  const COMPLETED_KEY = () => `${STORE_PREFIX}${dateKey()}:completed`;
   function loadCompleted() {
     try {
       const raw = localStorage.getItem(COMPLETED_KEY());
@@ -2253,7 +2290,7 @@ EEEFFF
     pauseTimer();
     saveStore();
     resumeTimer();
-    const today = todayKey();
+    const today = dateKey();
     const snapshot = {
       date: today,
       currentCategory,
@@ -2341,7 +2378,7 @@ EEEFFF
     pauseTimer();
     saveStore();
     resumeTimer();
-    const today = todayKey();
+    const today = dateKey();
     const snapshot = {
       date: today,
       currentCategory,
@@ -2430,16 +2467,79 @@ EEEFFF
       });
     }
   }
+  // The full puzzles.json once fetched. Lifted out of boot() so the date
+  // toggle can rebuild puzzleDefs for a different day on demand.
+  let puzzlePool = null;
+  // Cache of computed puzzleDefs keyed by dateKeyOf(date), so toggling
+  // back and forth doesn't recompute difficulty / solution each time.
+  const puzzleDefsByDate = {};
+  function loadPuzzlesForDate(d) {
+    if (!puzzlePool) return;
+    const key = dateKeyOf(d);
+    const cached = puzzleDefsByDate[key];
+    if (cached) {
+      for (const cat of CATEGORIES) puzzleDefs[cat] = cached[cat];
+      return;
+    }
+    const savedCat = currentCategory;
+    for (const cat of CATEGORIES) {
+      const text = entryToPuzzleText(pickDailyEntry(puzzlePool, cat, d));
+      const p = parsePuzzle(text);
+      puzzleDefs[cat] = { ...p, difficulty: null };
+    }
+    for (const cat of CATEGORIES) {
+      currentCategory = cat;
+      activateCategoryPuzzle(cat);
+      computeDifficulty();
+    }
+    puzzleDefsByDate[key] = { ...puzzleDefs };
+    currentCategory = savedCat;
+  }
+  function setDateOffset(offset) {
+    if (offset === currentDateOffset) return;
+    if (!puzzlePool) return;
+    pauseTimer();
+    saveStore();
+    stopTicking();
+    currentDateOffset = offset;
+    loadPuzzlesForDate(activeDate());
+    if (!puzzleDefs[currentCategory]) currentCategory = "Standard";
+    activateCategoryPuzzle(currentCategory);
+    buildSolverTables();
+    init();
+    renderTabs();
+    updateLogButtonVis();
+  }
+  function setupDateToggle() {
+    const btn = document.getElementById("date-toggle");
+    if (!btn) return;
+    if (!puzzlePool) {
+      btn.disabled = true;
+      btn.title = "Yesterday's puzzle isn't available offline";
+      return;
+    }
+    const apply = () => {
+      const onYesterday = currentDateOffset !== 0;
+      btn.textContent = onYesterday ? "Today" : "Yesterday";
+      btn.title = onYesterday ? "Back to today's puzzle" : "Show yesterday's puzzle";
+      btn.setAttribute("aria-pressed", onYesterday ? "true" : "false");
+    };
+    apply();
+    btn.addEventListener("click", () => {
+      setDateOffset(currentDateOffset === 0 ? -1 : 0);
+      apply();
+      btn.blur();
+    });
+  }
   async function boot() {
     setupThemeToggle();
     await loadAppConfig();
     renderBuildInfo();
     pruneOldStorage();
-    let pool;
     try {
       const res = await fetch("puzzles.json", { cache: "force-cache" });
       if (!res.ok) throw new Error(`puzzles.json HTTP ${res.status}`);
-      pool = await res.json();
+      puzzlePool = await res.json();
     } catch (err) {
       console.warn("using fallback puzzle, puzzles.json missing:", err.message);
       // Minimal fallback keeps the app playable offline.
@@ -2454,21 +2554,11 @@ EEEFFF
       buildSolverTables();
       init();
       renderTabs();
-    updateLogButtonVis();
+      updateLogButtonVis();
+      setupDateToggle();
       return;
     }
-    const today = new Date();
-    for (const cat of CATEGORIES) {
-      const text = entryToPuzzleText(pickDailyEntry(pool, cat, today));
-      const p = parsePuzzle(text);
-      puzzleDefs[cat] = { ...p, difficulty: null };
-    }
-    // Compute difficulty per category.
-    for (const cat of CATEGORIES) {
-      currentCategory = cat;
-      activateCategoryPuzzle(cat);
-      computeDifficulty();
-    }
+    loadPuzzlesForDate(activeDate());
     // Pick the first unlocked-but-unsolved category, else the last unlocked.
     let initial = "Standard";
     for (const cat of CATEGORIES) {
@@ -2481,6 +2571,7 @@ EEEFFF
     buildSolverTables();
     init();
     renderTabs();
+    setupDateToggle();
     updateLogButtonVis();
   }
   window.__bbtrio = () => ({

@@ -1390,6 +1390,38 @@ EEEFFF
     }
     return null;
   }
+  function anyIntersectForcing(state, constraints) {
+    // First pair of overlapping constraints whose intersection-rule application
+    // forces at least one cell. Used to surface 'a Medium-tier move existed'
+    // when the player took something deeper.
+    for (let i = 0; i < constraints.length; i++) {
+      for (let j = i + 1; j < constraints.length; j++) {
+        if (applyIntersectionRule(state, constraints[i], constraints[j])) {
+          return [constraints[i].label, constraints[j].label];
+        }
+      }
+    }
+    return null;
+  }
+  // Decide whether a strictly-easier alternative was on the table at the
+  // moment the player made `m`. Tiers: 0 single < 1 intersect/chain-2 <
+  // 2 chain-3 < 3 deeper. We surface a single-constraint alternative whenever
+  // the player skipped above tier 0, and additionally a pair-intersection
+  // alternative when they went above tier 1.
+  function pickSimplerAvailable(state, constraintList, minSize, usedIntersect) {
+    let userTier;
+    if (minSize === 1) userTier = 0;
+    else if (minSize === 2 || usedIntersect) userTier = 1;
+    else if (minSize === 3) userTier = 2;
+    else userTier = 3;
+    if (userTier < 1) return null;
+    const singleLabel = anySingleForcing(state, constraintList);
+    if (singleLabel) return { kind: "single", label: singleLabel, labels: [singleLabel] };
+    if (userTier < 2) return null;
+    const interLabels = anyIntersectForcing(state, constraintList);
+    if (interLabels) return { kind: "intersect", label: `${interLabels[0]} × ${interLabels[1]}`, labels: interLabels };
+    return null;
+  }
   function replayMoveLogUntil(idx) {
     let s = Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
     for (const key in givens) {
@@ -1662,7 +1694,8 @@ EEEFFF
           forcing.push({ r, c, v, ...classifyMoveConstraints(stateBefore, r, c, v, constraintList, preferredStrong, preferredWeak) });
         }
         const minSize = forcing.reduce((m, f) => f.size != null ? Math.min(m, f.size) : m, Infinity);
-        if (minSize > 1) simplerAvailable = anySingleForcing(stateBefore, constraintList);
+        const usedIntersect = forcing.some(f => f.kind === "intersect");
+        simplerAvailable = pickSimplerAvailable(stateBefore, constraintList, minSize, usedIntersect);
         const viaSet = new Set();
         for (const f of forcing) for (const l of (f.labels || [])) viaSet.add(l);
         prevViaLabels = [...viaSet];
@@ -1770,7 +1803,9 @@ EEEFFF
         const satBefore = computeSatisfied(preState);
         const satAfter = computeSatisfied(postState);
         const newlySat = [...satAfter].filter(x => !satBefore.has(x));
-        const simplerAvailable = v.size > 1 ? anySingleForcing(preState, constraintList) : null;
+        const burstMinSize = v.size == null ? Infinity : v.size;
+        const burstUsedIntersect = v.kind === "intersect";
+        const simplerAvailable = pickSimplerAvailable(preState, constraintList, burstMinSize, burstUsedIntersect);
         mergedInfo.push({
           type: "click",
           t: acts[0].t,
@@ -1942,7 +1977,7 @@ EEEFFF
       if (m.simplerAvailable) {
         const tag = document.createElement("span");
         tag.className = "simpler-tag";
-        tag.textContent = ` · simpler move available [${m.simplerAvailable}]`;
+        tag.textContent = ` · simpler move available [${m.simplerAvailable.label}]`;
         div.appendChild(tag);
       }
       div.classList.add("clickable");
@@ -1989,29 +2024,35 @@ EEEFFF
     summary.style.color = "var(--ink)";
     summary.textContent = "Średni czas przed ruchem (myślenie+próby):";
     el.appendChild(summary);
-    let avgSingle = null;
+    const avgs = {};
     for (const [k, arr] of Object.entries(buckets)) {
       if (arr.length === 0) continue;
       const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
-      if (k === "single") avgSingle = avg;
+      avgs[k] = avg;
       const line = document.createElement("div");
       line.textContent = `  ${k}: ${formatTime(avg)} (${arr.length} ruch${arr.length === 1 ? "" : "ów"})`;
       el.appendChild(line);
     }
-    // Estimate time wasted by skipping simpler-single moves.
-    if (avgSingle != null) {
-      let savedMs = 0, missed = 0;
-      for (const m of moves) {
-        if (!m.simplerAvailable) continue;
-        const wasted = m.gap.dur - avgSingle;
-        if (wasted > 0) { savedMs += wasted; missed++; }
-      }
-      if (missed > 0) {
-        const line = document.createElement("div");
-        line.style.marginTop = "4px";
-        line.textContent = `If you had taken the simpler single-constraint move at average single-time on each of ${missed} 'simpler available' steps: ~${formatTime(savedMs)} saved`;
-        el.appendChild(line);
-      }
+    // Estimate time wasted by skipping simpler moves. Each 'simpler available'
+    // tag carries the kind of alternative that existed (single or intersect);
+    // we baseline against the average time that bucket actually took.
+    let savedMs = 0, missed = 0;
+    const usedKinds = new Set();
+    for (const m of moves) {
+      if (!m.simplerAvailable) continue;
+      const baseline = avgs[m.simplerAvailable.kind];
+      if (baseline == null) continue;
+      const wasted = m.gap.dur - baseline;
+      if (wasted > 0) { savedMs += wasted; missed++; usedKinds.add(m.simplerAvailable.kind); }
+    }
+    if (missed > 0) {
+      const line = document.createElement("div");
+      line.style.marginTop = "4px";
+      const kindWord = usedKinds.size > 1
+        ? "single/intersect"
+        : (usedKinds.has("single") ? "single-constraint" : "pair-intersection");
+      line.textContent = `If you had taken the simpler ${kindWord} move at average ${kindWord} time on each of ${missed} 'simpler available' steps: ~${formatTime(savedMs)} saved`;
+      el.appendChild(line);
     }
   }
 
@@ -2060,7 +2101,7 @@ EEEFFF
       cell.classList.remove("move-highlight");
     }
   }
-  function applyConstraintHighlights(viaLabels, simplerLabel, moveCells) {
+  function applyConstraintHighlights(viaLabels, simpler, moveCells) {
     clearConstraintHighlights();
     // Both highlights show only the outer perimeter of their cell set.
     // Where they overlap on the same edge, via (green) is drawn 0-2px from
@@ -2075,7 +2116,21 @@ EEEFFF
       return set;
     };
     const viaSet = buildSet(viaLabels);
-    const simplerSet = buildSet(simplerLabel ? [simplerLabel] : null);
+    // Simpler may be a single-constraint hint (highlight its cells) or a
+    // pair-intersection hint (highlight only the cells common to both — that's
+    // the region the intersection rule actually constrains).
+    const simplerSet = new Set();
+    if (simpler) {
+      if (simpler.kind === "intersect") {
+        const sets = simpler.labels.map(lab => buildSet([lab]));
+        if (sets.length) {
+          const [first, ...rest] = sets;
+          for (const k of first) if (rest.every(s => s.has(k))) simplerSet.add(k);
+        }
+      } else {
+        for (const k of buildSet([simpler.label])) simplerSet.add(k);
+      }
+    }
     const allCells = new Set([...viaSet, ...simplerSet]);
     for (const key of allCells) {
       const [r, c] = key.split(",").map(Number);
@@ -2108,7 +2163,7 @@ EEEFFF
   }
 
   let _historyView = { idx: null, savedState: null, div: null };
-  function toggleHistoryView(idx, div, viaLabels, simplerLabel, moveCells) {
+  function toggleHistoryView(idx, div, viaLabels, simpler, moveCells) {
     if (_historyView.idx === idx) {
       exitHistoryView();
       return;
@@ -2123,7 +2178,7 @@ EEEFFF
     state = replayMoveLogUntil(idx);
     document.body.classList.add("history-mode");
     render();
-    applyConstraintHighlights(viaLabels, simplerLabel, moveCells);
+    applyConstraintHighlights(viaLabels, simpler, moveCells);
   }
   function exitHistoryView() {
     if (_historyView.idx == null) return;

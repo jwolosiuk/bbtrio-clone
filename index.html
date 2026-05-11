@@ -174,6 +174,29 @@
   .cell.bad { background: var(--bad-cell); }
   .cell.bad.clue { background: var(--bad-clue); }
 
+  /* Preview of the placements a 'simpler move' would make on the cells the
+     simpler rule forces. Sits on top of whatever the player actually placed
+     so a comparison is possible at a glance. */
+  .preview {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  .preview-berry {
+    width: 64%; height: 64%;
+    border-radius: 50%;
+    background: #d97706;
+    opacity: 0.5;
+  }
+  .preview.preview-mark {
+    color: #d97706;
+    opacity: 0.75;
+    font-size: 28px; line-height: 1; font-weight: 400;
+  }
+
   .controls { display: flex; gap: 10px; margin-top: 18px; align-items: center; }
   button {
     appearance: none; border: 1.5px solid var(--line); background: var(--bg);
@@ -1333,6 +1356,21 @@ EEEFFF
     if (need === opens.length) { for (const [r, c] of opens) state[r][c] = 1; return true; }
     return false;
   }
+  // Same single-constraint deduction as applyConstraintOnce but returns the
+  // forced placements (as {r, c, v} list) without mutating state. Used to
+  // build a preview of the simpler-move alternative.
+  function forceByConstraint(state, cells, target) {
+    let berries = 0; const opens = [];
+    for (const [r, c] of cells) {
+      if (state[r][c] === 1) berries++;
+      else if (state[r][c] === 0) opens.push([r, c]);
+    }
+    const need = target - berries;
+    if (need < 0 || need > opens.length || opens.length === 0) return [];
+    if (need === 0) return opens.map(([r, c]) => ({ r, c, v: 2 }));
+    if (need === opens.length) return opens.map(([r, c]) => ({ r, c, v: 1 }));
+    return [];
+  }
   // Cardinality-difference rule (a.k.a. clue-pair forcing for two clue cells,
   // generalised to any pair of constraints with overlapping cell sets).
   //
@@ -1385,8 +1423,8 @@ EEEFFF
   }
   function anySingleForcing(state, constraints) {
     for (const k of constraints) {
-      const s2 = state.map(row => row.slice());
-      if (applyConstraintOnce(s2, k.cells, k.target)) return k.label;
+      const forced = forceByConstraint(state, k.cells, k.target);
+      if (forced.length) return { label: k.label, forced };
     }
     return null;
   }
@@ -1396,9 +1434,8 @@ EEEFFF
     // when the player took something deeper.
     for (let i = 0; i < constraints.length; i++) {
       for (let j = i + 1; j < constraints.length; j++) {
-        if (applyIntersectionRule(state, constraints[i], constraints[j])) {
-          return [constraints[i].label, constraints[j].label];
-        }
+        const forced = applyIntersectionRule(state, constraints[i], constraints[j]);
+        if (forced) return { labels: [constraints[i].label, constraints[j].label], forced };
       }
     }
     return null;
@@ -1407,7 +1444,9 @@ EEEFFF
   // moment the player made `m`. Tiers: 0 single < 1 intersect/chain-2 <
   // 2 chain-3 < 3 deeper. We surface a single-constraint alternative whenever
   // the player skipped above tier 0, and additionally a pair-intersection
-  // alternative when they went above tier 1.
+  // alternative when they went above tier 1. `forced` carries the {r, c, v}
+  // placements the alternative would make from the same starting state, used
+  // to preview them when the log entry is clicked.
   function pickSimplerAvailable(state, constraintList, minSize, usedIntersect) {
     let userTier;
     if (minSize === 1) userTier = 0;
@@ -1415,11 +1454,11 @@ EEEFFF
     else if (minSize === 3) userTier = 2;
     else userTier = 3;
     if (userTier < 1) return null;
-    const singleLabel = anySingleForcing(state, constraintList);
-    if (singleLabel) return { kind: "single", label: singleLabel, labels: [singleLabel] };
+    const single = anySingleForcing(state, constraintList);
+    if (single) return { kind: "single", label: single.label, labels: [single.label], forced: single.forced };
     if (userTier < 2) return null;
-    const interLabels = anyIntersectForcing(state, constraintList);
-    if (interLabels) return { kind: "intersect", label: `${interLabels[0]} × ${interLabels[1]}`, labels: interLabels };
+    const inter = anyIntersectForcing(state, constraintList);
+    if (inter) return { kind: "intersect", label: `${inter.labels[0]} × ${inter.labels[1]}`, labels: inter.labels, forced: inter.forced };
     return null;
   }
   function replayMoveLogUntil(idx) {
@@ -2153,6 +2192,31 @@ EEEFFF
         if (!simplerSet.has(`${r},${c + 1}`)) shadows.push("inset -4px 0 0 0 #d97706");
       }
       if (shadows.length) cell.style.boxShadow = shadows.join(", ");
+    }
+    // Yellow/orange preview of the placements the simpler rule would make.
+    // Painted on top of the (replayed) cell content so the user can see what
+    // the alternative would have placed — whether or not their actual move
+    // already occupied the same square.
+    if (simpler && Array.isArray(simpler.forced)) {
+      for (const f of simpler.forced) {
+        const idx = f.r * SIZE + f.c;
+        const cell = board.children[idx];
+        if (!cell) continue;
+        // Clue cells aren't placeable; given cells already display a berry,
+        // so a preview overlay there is meaningless (and looks like a bug).
+        if (cell.classList.contains("clue") || cell.classList.contains("given")) continue;
+        const overlay = document.createElement("div");
+        if (f.v === 1) {
+          overlay.className = "preview";
+          const ball = document.createElement("div");
+          ball.className = "preview-berry";
+          overlay.appendChild(ball);
+        } else {
+          overlay.className = "preview preview-mark";
+          overlay.textContent = "×";
+        }
+        cell.appendChild(overlay);
+      }
     }
     if (moveCells) {
       for (const { r, c } of moveCells) {

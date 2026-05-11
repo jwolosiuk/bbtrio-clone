@@ -202,6 +202,7 @@
   .analysis div { padding: 1px 4px; border-radius: 3px; }
   .analysis .good { color: var(--good); }
   .analysis .trial { color: var(--bad); }
+  .analysis .live { color: var(--muted); cursor: default; }
   .analysis .clickable { cursor: pointer; }
   .analysis .clickable:hover { background: var(--analysis-hover); }
   .analysis .active-history { background: var(--history-bg); }
@@ -303,7 +304,7 @@
     <button id="undo" type="button" disabled>Undo</button>
     <button id="check" type="button">Check</button>
     <button id="reset" type="button">Reset</button>
-    <button id="log" type="button" style="display:none">Log</button>
+    <button id="log" type="button">Log</button>
   </div>
   <div id="status" class="status" role="status" aria-live="polite"></div>
   <div id="analysis" class="analysis"></div>
@@ -1879,9 +1880,11 @@ EEEFFF
   function updateLogButtonVis() {
     const btn = document.getElementById("log");
     if (!btn) return;
-    // Show the Log button once the category has been solved at least once
-    // today, so replays can watch it live.
-    btn.style.display = categoryFinishedAt(currentCategory) ? "" : "none";
+    // Always visible: the live (pre-solve) view is greyed out and shows only
+    // the player's actions, no solve-quality info; once the puzzle is solved
+    // it gains colors, via/closes annotations, simpler-move tags, and
+    // click-to-replay.
+    btn.style.display = "";
   }
   function renderAnalysis() {
     const el = document.getElementById("analysis");
@@ -1890,6 +1893,10 @@ EEEFFF
     if (!finishedAt && !analysisVisible) return;
     const moves = buildAnalysis();
     if (!moves.length) return;
+    // Live (pre-solve) mode: no good/trial coloring, no via/closes/simpler-tag
+    // annotations, no click-to-replay — we only show the player's own
+    // timeline so the panel can't double as a hint system.
+    const live = !finishedAt;
     for (const m of moves) {
       const div = document.createElement("div");
       const at = formatTime(m.t);
@@ -1908,8 +1915,14 @@ EEEFFF
       let suffix = "";
       if (m.kind === "swipe") suffix = ` (swipe × ${m.cells})`;
       else if (m.kind === "burst") suffix = ` (burst × ${m.cells})`;
-      div.className = g.kind === "trial" ? "trial" : "good";
       let body = gapText ? `✓ ${at}${suffix} — ${gapText}` : `✓ ${at}${suffix}`;
+      if (live) {
+        div.className = "live";
+        div.textContent = body;
+        el.appendChild(div);
+        continue;
+      }
+      div.className = g.kind === "trial" ? "trial" : "good";
       // 'forced via': how each touched cell was derived. The connector itself
       // tells the kind: ' ∩ ' = intersection, ' → ' = chain, single = one label.
       const fmtChain = (f) => f.kind === "intersect"
@@ -1945,6 +1958,11 @@ EEEFFF
       });
       el.appendChild(div);
     }
+
+    // Skip the post-mortem averages footer while the puzzle is unsolved —
+    // the buckets reveal which moves were single/intersect/chain/deeper, i.e.
+    // information we deliberately hide in live mode.
+    if (live) return;
 
     // --- summary footer: average gap before each class ---
     const buckets = { single: [], intersect: [], "chain-2": [], "chain-3": [], deeper: [] };

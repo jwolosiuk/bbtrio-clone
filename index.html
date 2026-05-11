@@ -72,6 +72,7 @@
   header { text-align: center; margin-bottom: 16px; }
   h1 { margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: 0.2px; }
   .rule { margin: 0; color: var(--muted); font-size: 13px; max-width: 32em; line-height: 1.45; }
+  .rule-sub { font-size: 11px; opacity: 0.85; margin-top: 2px; }
 
   .board-wrap {
     display: inline-grid;
@@ -285,6 +286,7 @@
   <header>
     <h1>Blueberry Trio</h1>
     <p class="rule">Place 3 berries in each row, column, and block. Each number must be touched by exactly that many berries (8 neighbors).</p>
+    <p class="rule rule-sub">Difficulty (shown after solving): <b>Trivial</b> = single-constraint deductions; <b>Medium</b> = also needs a pair-of-constraints intersection; <b>Difficult</b> = harder than that.</p>
     <div id="tabs" class="tabs" role="tablist"></div>
     <div id="timer" class="timer" aria-label="Elapsed time">00:00</div>
     <div id="undo-count" class="timer" aria-label="Undo count" style="margin-top:2px;"></div>
@@ -1018,6 +1020,11 @@ EEEFFF
     if (label) parts.push(label);
     if (undoCount > 0) parts.push(`${undoCount} undo`);
     setStatus(parts.join(" · "), true);
+    statusEl.title = label
+      ? "Trivial: solvable by single-constraint deductions only.\n"
+        + "Medium: also needs at least one pair-of-constraints intersection step.\n"
+        + "Difficult: harder than that (deeper search / chains)."
+      : "";
     renderAnalysis();
   }
 

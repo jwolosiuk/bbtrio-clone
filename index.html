@@ -2518,7 +2518,19 @@ EEEFFF
     stopTicking();
     currentDateOffset = offset;
     loadPuzzlesForDate(activeDate());
-    if (!puzzleDefs[currentCategory]) currentCategory = "Standard";
+    // Keep current category if it's still unlocked on the new date; otherwise
+    // pick the first unlocked-but-unsolved (mirrors boot's fallback). Without
+    // this, switching today→yesterday→today on Expert could leave us viewing
+    // today's Expert before it's been unlocked.
+    if (!puzzleDefs[currentCategory] || !isCategoryUnlocked(currentCategory)) {
+      let initial = "Standard";
+      for (const cat of CATEGORIES) {
+        if (!isCategoryUnlocked(cat)) break;
+        if (!categoryFinishedAt(cat)) { initial = cat; break; }
+        initial = cat;
+      }
+      currentCategory = initial;
+    }
     activateCategoryPuzzle(currentCategory);
     buildSolverTables();
     init();

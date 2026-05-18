@@ -37,6 +37,11 @@
     --analysis-hover: rgba(0, 0, 0, 0.04);
     --history-bg: rgba(59, 42, 120, 0.12);
     --clue-satisfied: rgba(26, 26, 26, 0.22);
+    /* Per-move classification colors in the log. Muted on purpose so a long
+       log doesn't read as a flashing rainbow. --good doubles as the single /
+       chain-2 color so trivial-tier moves keep the existing green. */
+    --cls-intersect: #2d5d80;
+    --cls-deeper: #7a4a2a;
   }
   html[data-theme="dark"] {
     --bg: #15171a;
@@ -59,6 +64,8 @@
     --analysis-hover: rgba(255, 255, 255, 0.06);
     --history-bg: rgba(138, 122, 214, 0.18);
     --clue-satisfied: rgba(232, 230, 225, 0.25);
+    --cls-intersect: #7aa5cf;
+    --cls-deeper: #c89770;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
@@ -226,6 +233,11 @@
   .analysis .good { color: var(--good); }
   .analysis .trial { color: var(--bad); }
   .analysis .live { color: var(--muted); cursor: default; }
+  /* Override .good's green for moves that needed combining constraints
+     (intersect / chain-3) or that the chain-finder couldn't even fit (deeper).
+     .good is still listed first so single / chain-2 rows fall through to it. */
+  .analysis .cls-intersect { color: var(--cls-intersect); }
+  .analysis .cls-deeper { color: var(--cls-deeper); }
   .analysis .clickable { cursor: pointer; }
   .analysis .clickable:hover { background: var(--analysis-hover); }
   .analysis .active-history { background: var(--history-bg); }
@@ -1971,6 +1983,31 @@ EEEFFF
     // annotations, no click-to-replay — we only show the player's own
     // timeline so the panel can't double as a hint system.
     const live = !finishedAt;
+    // Categorize a move by the simplest constraint pattern that derived it.
+    // Used both for per-row color and for the average-time buckets below, so
+    // the two views can't drift out of sync.
+    const moveCls = (m) => {
+      if (!m.forcing || !m.forcing.length) return "deeper";
+      let minSize = Infinity, hasIntersect = false;
+      for (const f of m.forcing) {
+        if (f.size == null) continue;
+        if (f.size < minSize) minSize = f.size;
+        if (f.kind === "intersect") hasIntersect = true;
+      }
+      if (minSize === 1) return "single";
+      if (hasIntersect) return "intersect";
+      if (minSize === 2) return "chain-2";
+      if (minSize === 3) return "chain-3";
+      return "deeper";
+    };
+    // Color buckets the user asked for: green (single + chain-2), blue
+    // (intersect + chain-3), brown (deeper). Trial-kind moves still override
+    // to red so 'próba' rows stay easy to spot.
+    const colorClassFor = (cls) => {
+      if (cls === "intersect" || cls === "chain-3") return "cls-intersect";
+      if (cls === "deeper") return "cls-deeper";
+      return null;
+    };
     for (const m of moves) {
       const div = document.createElement("div");
       const at = formatTime(m.t);
@@ -1996,7 +2033,12 @@ EEEFFF
         el.appendChild(div);
         continue;
       }
-      div.className = g.kind === "trial" ? "trial" : "good";
+      if (g.kind === "trial") {
+        div.className = "trial";
+      } else {
+        const colorCls = colorClassFor(moveCls(m));
+        div.className = colorCls ? `good ${colorCls}` : "good";
+      }
       // 'forced via': how each touched cell was derived. The connector itself
       // tells the kind: ' ∩ ' = intersection, ' → ' = chain, single = one label.
       const fmtChain = (f) => f.kind === "intersect"
@@ -2040,22 +2082,7 @@ EEEFFF
 
     // --- summary footer: average gap before each class ---
     const buckets = { single: [], intersect: [], "chain-2": [], "chain-3": [], deeper: [] };
-    for (const m of moves) {
-      let cls = "deeper";
-      if (m.forcing && m.forcing.length) {
-        let minSize = Infinity, hasIntersect = false;
-        for (const f of m.forcing) {
-          if (f.size == null) continue;
-          if (f.size < minSize) minSize = f.size;
-          if (f.kind === "intersect") hasIntersect = true;
-        }
-        if (minSize === 1) cls = "single";
-        else if (hasIntersect) cls = "intersect";
-        else if (minSize === 2) cls = "chain-2";
-        else if (minSize === 3) cls = "chain-3";
-      }
-      buckets[cls].push(m.gap.dur);
-    }
+    for (const m of moves) buckets[moveCls(m)].push(m.gap.dur);
     const summary = document.createElement("div");
     summary.style.marginTop = "10px";
     summary.style.borderTop = "1px solid var(--thin)";

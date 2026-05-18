@@ -2102,22 +2102,31 @@ EEEFFF
     // Estimate time wasted by skipping simpler moves. Each 'simpler available'
     // tag carries the kind of alternative that existed (single or intersect);
     // we baseline against the average time that bucket actually took.
-    let savedMs = 0, missed = 0;
-    const usedKinds = new Set();
+    // `total` counts every tag (matches what's visible in the log above);
+    // `slow` counts the subset where the player took longer than the baseline
+    // — those are the only ones that contribute to the savings estimate.
+    let savedMs = 0, total = 0, slow = 0;
+    const slowKinds = new Set();
     for (const m of moves) {
       if (!m.simplerAvailable) continue;
+      total++;
       const baseline = avgs[m.simplerAvailable.kind];
       if (baseline == null) continue;
-      const wasted = m.gap.dur - baseline;
-      if (wasted > 0) { savedMs += wasted; missed++; usedKinds.add(m.simplerAvailable.kind); }
+      const diff = m.gap.dur - baseline;
+      if (diff > 0) { savedMs += diff; slow++; slowKinds.add(m.simplerAvailable.kind); }
     }
-    if (missed > 0) {
+    if (total > 0) {
       const line = document.createElement("div");
       line.style.marginTop = "4px";
-      const kindWord = usedKinds.size > 1
-        ? "single/intersect"
-        : (usedKinds.has("single") ? "single-constraint" : "pair-intersection");
-      line.textContent = `If you had taken the simpler ${kindWord} move at average ${kindWord} time on each of ${missed} 'simpler available' steps: ~${formatTime(savedMs)} saved`;
+      const stepWord = (n) => `${n} 'simpler available' step${n === 1 ? "" : "s"}`;
+      if (slow === 0) {
+        line.textContent = `${stepWord(total)} — handled at or below average time.`;
+      } else {
+        const kindWord = slowKinds.size > 1
+          ? "single/intersect"
+          : (slowKinds.has("single") ? "single-constraint" : "pair-intersection");
+        line.textContent = `${stepWord(total)}; on ${slow} you spent more than the average ${kindWord} time — ~${formatTime(savedMs)} saved if you'd matched average.`;
+      }
       el.appendChild(line);
     }
   }
